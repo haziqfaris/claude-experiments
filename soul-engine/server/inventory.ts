@@ -88,6 +88,8 @@ const KEY_API: [RegExp, string][] = [
   [/FIREBASE/, 'Firebase'], [/AWS|S3_/, 'AWS'], [/SENTRY/, 'Sentry'], [/POSTHOG/, 'PostHog'], [/MAPBOX/, 'Mapbox API'], [/QUICKBOOKS|INTUIT/, 'QuickBooks API'], [/XERO/, 'Xero API'],
   [/BUKKU/, 'Bukku API'], [/MYINVOIS|LHDN/, 'MyInvois (LHDN) API'], [/HUBSPOT/, 'HubSpot API'], [/NOTION/, 'Notion API'], [/SLACK/, 'Slack API'], [/DISCORD/, 'Discord API'],
   [/SCREENSHOTONE|BROWSERLESS/, 'Screenshot API'], [/UPSTASH|REDIS/, 'Redis'], [/GPG|PGP|AGE_/, 'Backup encryption key'], [/DATABASE_URL|POSTGRES|^PG_|_PG_/, 'Database connection'],
+  [/N8N|ZAPIER|MAKE_/, 'n8n / automation webhooks'], [/WEBHOOK_URL$/, 'Outgoing webhook (automation)'], [/SES_|AWS_SES/, 'AWS SES e-mail'], [/OIDC/, 'OIDC sign-in provider'], [/TURNSTILE|RECAPTCHA|HCAPTCHA/, 'Bot check (Turnstile or CAPTCHA)'],
+  [/BOOTSTRAP_PASS|SEED_PASS|INITIAL_PASS|_PASSWORD$/, 'Login to the app itself (seeded or bootstrap account)'],
   [/PAGESPEED|LIGHTHOUSE|CRUX/, 'Google PageSpeed / CrUX API'], [/_ARN$|SECRETS_MANAGER/, 'AWS Secrets Manager'], [/ROLE_PASSWORD|DB_PASS|DATABASE_PASS/, 'Database connection'],
   [/DEMO|ADMIN_PASS|BASIC_AUTH|ACCESS_PASSWORD|PREVIEW_PASS/, 'Login to the app itself (demo, admin or preview gate)'],
   [/JWT|SESSION|AUTH_SECRET|NEXTAUTH|ENCRYPTION|SIGNING|CRON_SECRET|INTERNAL|PEPPER|SALT|HMAC|INGEST|SWEEP|WORKER_SECRET|SHARED_SECRET|_SECRET$/, 'App-internal secret (signing, sessions or internal calls)'],
