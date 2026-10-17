@@ -38,6 +38,8 @@ const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessi
     'Which project burned the most tokens today?',
     'Is any session close to its context limit?',
     subject ? `What should I do next in ${subject.name}?` : 'Summarize today',
+    'Which API keys does each project use, and for which API?',
+    '/find noreply',
   ];
 
   return (

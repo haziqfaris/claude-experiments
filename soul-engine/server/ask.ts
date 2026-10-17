@@ -1,8 +1,9 @@
 // The Soul Protocol: answers questions about the user's projects with Claude,
 // grounded in a live context block rebuilt for every question.
 import Anthropic from '@anthropic-ai/sdk';
-import type { AskEvent, AskRequest, ChatTurn, ProjectDetail, Snapshot } from '../src/types';
+import type { AskEvent, AskRequest, ChatTurn, Inventory, ProjectDetail, Snapshot } from '../src/types';
 import { buildContext, offlineAnswer, pickProjects } from './context';
+import { INVENTORY_QUESTION, inventoryContext, offlineInventoryAnswer } from './inventory';
 
 const MODEL = process.env.SOUL_MODEL ?? 'claude-opus-5-5';
 const EFFORT = (process.env.SOUL_EFFORT ?? 'low') as 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -18,7 +19,8 @@ How to answer:
 - When asked what is happening, or what the user was doing, in a project, reconstruct it from the recent prompts, replies, files touched and commits, and say what seems to come next.
 - If the context does not contain the answer, say so plainly instead of guessing, and name what would answer it.
 - Costs are estimates from API list prices unless the context says otherwise. If the data source is demo data, say so when it matters.
-- Keep answers under 120 words unless the user asks for more. Plain text; short "-" lists are fine; no markdown headings or tables.`;
+- The context may also hold a <project_inventory> block: each project's tools and services, API keys by name with the API each calls, APIs called, hosting, domains, e-mail addresses, sign-in methods, scheduled jobs and defaults, read from the repos' files with file:line evidence. Answer inventory questions from it and cite the evidence file. It never contains secret values: if asked for a password or key value, say it is not collected and point to where the key is used or kept (the vault, the CI secrets). Masked addresses (•••) are personal or client addresses; do not try to reconstruct them.
+- Keep answers under 120 words unless the user asks for more, or asks for a list or inventory. Plain text; short "-" lists are fine; no markdown headings or tables.`;
 
 let client: Anthropic | null = null;
 function getClient(): Anthropic | null {
@@ -51,14 +53,19 @@ export async function ask(
   detail: (id: string) => Promise<ProjectDetail | null>,
   send: (e: AskEvent) => void,
   signal: AbortSignal,
+  inventory?: Inventory,
 ): Promise<void> {
   const question = req.question.trim().slice(0, 4000);
   const picked = pickProjects(snap, question, req.focusId);
+  const named = snap.projects.filter((p) => question.toLowerCase().includes(p.name.toLowerCase()));
+  const wantsInventory = !!inventory && inventory.projects.length > 0 && INVENTORY_QUESTION.test(question);
+  // Named or focused projects get their full inventory; "which projects…" questions get every project's.
+  const invScope = named.length ? named.map((p) => p.name) : req.focusId ? picked.map((p) => p.name) : null;
   const details = (await Promise.all(picked.map((p) => detail(p.id)))).filter((d): d is ProjectDetail => d != null);
 
   const offline = () => {
     send({ type: 'meta', projects: picked.map((p) => p.name), model: 'offline', offline: true });
-    send({ type: 'delta', text: offlineAnswer(snap, details) });
+    send({ type: 'delta', text: wantsInventory && inventory ? offlineInventoryAnswer(inventory, question) : offlineAnswer(snap, details) });
     send({ type: 'done' });
   };
 
@@ -66,7 +73,11 @@ export async function ask(
   if (!anthropic) return offline();
 
   send({ type: 'meta', projects: picked.map((p) => p.name), model: MODEL, offline: false });
-  const context = buildContext(snap, details);
+  const context = buildContext(snap, details) + (wantsInventory && inventory ? `
+
+<project_inventory>
+${inventoryContext(inventory, invScope)}
+</project_inventory>` : '');
   const messages: Anthropic.MessageParam[] = [
     ...cleanHistory(req.history),
     { role: 'user', content: `<live_context>\n${context}\n</live_context>\n\n${question}` },

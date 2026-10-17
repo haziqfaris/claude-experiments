@@ -4,10 +4,11 @@ import DataOrbits from './components/DataOrbits';
 import Terminal from './components/Terminal';
 import ProjectsPanel from './components/ProjectsPanel';
 import FocusPanel from './components/FocusPanel';
+import InventoryPanel from './components/InventoryPanel';
 import { SoulMood, Message, OrbitNode, ChatTurn } from './types';
 import { querySoulEngine, useProjectDetail, useSnapshot } from './services/soulService';
 import { fmtCost, fmtTokens } from './format';
-import { Activity, ArrowLeftRight, Coins, Flame, Radio } from 'lucide-react';
+import { Activity, ArrowLeftRight, Coins, Database, Flame, Radio } from 'lucide-react';
 
 const App: React.FC = () => {
   const { snapshot, link } = useSnapshot();
@@ -16,6 +17,7 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [afterglow, setAfterglow] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
   const glowTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const projects = snapshot?.projects ?? [];
@@ -54,6 +56,23 @@ const App: React.FC = () => {
 
   const handleSendMessage = useCallback(
     async (text: string) => {
+      // "/find <text>" searches the inventory locally: no Claude call, nothing leaves the machine.
+      const find = /^\/find\s+(.+)/i.exec(text.trim());
+      if (find) {
+        setMessages(prev => [...prev, { role: 'user', content: text, timestamp: Date.now() }]);
+        let reply = '';
+        try {
+          const res = await fetch(`/api/inventory?q=${encodeURIComponent(find[1])}`);
+          const data = (await res.json()) as { hits: { project: string; fact: { label: string; value: string; evidence: string[] } }[] };
+          reply = data.hits.length
+            ? data.hits.slice(0, 40).map(h => `• ${h.project} · ${h.fact.label}: ${h.fact.value}${h.fact.evidence[0] ? `  (${h.fact.evidence[0]})` : ''}`).join('\n') + (data.hits.length > 40 ? `\n…and ${data.hits.length - 40} more. Open INVENTORY to see all.` : '')
+            : `No inventory fact matches "${find[1]}".`;
+        } catch {
+          reply = 'Resonance lost. The hub is unreachable.';
+        }
+        setMessages(prev => [...prev, { role: 'system', content: reply, timestamp: Date.now(), meta: '↳ inventory search · local' }]);
+        return;
+      }
       const history: ChatTurn[] = messages.map(m => ({
         role: m.role === 'user' ? 'user' : 'assistant',
         content: m.content,
@@ -138,12 +157,17 @@ const App: React.FC = () => {
           <MetricCard label="EST. COST" value={fmtCost(totals?.costToday)} icon={<Coins size={14}/>} />
           <MetricCard label="LIVE" value={totals ? `${totals.liveSessions}/${totals.sessions}` : '—'} icon={<Radio size={14}/>} className="hidden sm:flex" />
           <MetricCard label="FLUX/MIN" value={totals ? fmtTokens(totals.burnPerMin) : '—'} icon={<Flame size={14}/>} className="hidden md:flex" />
+          <button type="button" onClick={() => setInventoryOpen(true)} className="glass-panel px-4 py-2 rounded flex flex-col items-end min-w-[100px] pointer-events-auto hover:border-reka-cyan/60 focus:outline-none focus:border-reka-cyan" aria-label="Open the project inventory">
+            <div className="flex items-center gap-2 text-reka-cyan/70 text-[10px] font-bold tracking-wider mb-1"><Database size={14}/> INVENTORY</div>
+            <div className="text-xl font-mono text-white neon-text">OPEN</div>
+          </button>
           <MetricCard label="SAVED" value={snapshot ? fmtCost(snapshot.relay.savedToday) : '—'} icon={<ArrowLeftRight size={14}/>} className="hidden lg:flex" />
         </div>
       </div>
 
       {snapshot && <ProjectsPanel snapshot={snapshot} focusId={focusId} onFocus={setFocusId} />}
       <FocusPanel detail={detail} pinned={focusId != null} />
+      <InventoryPanel open={inventoryOpen} onClose={() => setInventoryOpen(false)} onAsk={q => handleSendMessage(q)} />
 
       {/* Bottom Interface */}
       <Terminal

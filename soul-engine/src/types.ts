@@ -142,3 +142,37 @@ export type AskEvent =
   | { type: 'delta'; text: string }
   | { type: 'done'; usage?: { input: number; output: number } }
   | { type: 'error'; message: string };
+
+// ---- Project inventory (server/inventory.ts) ----
+
+export type InventoryCategory = 'service' | 'apikey' | 'api' | 'hosting' | 'domain' | 'email' | 'signin' | 'job' | 'default' | 'env' | 'register';
+
+/** One fact about a project's tools or infrastructure, with where it was found. Never a secret value. */
+export interface InventoryFact {
+  category: InventoryCategory;
+  label: string;
+  value: string;
+  /** Repo-relative file that shows it, for example "wrangler.jsonc:12". */
+  evidence: string[];
+  /** A personal or client address with the name hidden. */
+  masked?: boolean;
+}
+
+export interface ProjectInventory {
+  id: string;
+  name: string;
+  path: string;
+  repo: string | null;
+  branch: string | null;
+  scannedAt: number;
+  filesScanned: number;
+  /** Other folders holding a copy or worktree of the same repo. */
+  alsoAt?: string[];
+  facts: InventoryFact[];
+}
+
+export interface Inventory {
+  scannedAt: number;
+  scanning: boolean;
+  projects: ProjectInventory[];
+}

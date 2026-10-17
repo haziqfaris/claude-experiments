@@ -1,5 +1,6 @@
 // jarvisd: the local hub behind the Soul Engine. Serves live project stats,
 // streams them to the dashboard, and answers questions about them.
+import './env';
 import { createReadStream, promises as fs } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -10,6 +11,7 @@ import { demoDetail, demoSnapshot } from './demo';
 import { gitInfo, projectNotes } from './git';
 import { addDelegation, relayStats } from './relay';
 import { TranscriptIndex } from './transcripts';
+import { InventoryIndex, searchInventory } from './inventory';
 
 const PORT = Number(process.env.SOUL_PORT ?? 7777);
 const HOST = process.env.SOUL_HOST ?? '127.0.0.1';
@@ -17,6 +19,11 @@ const FORCE_DEMO = process.env.SOUL_DEMO === '1';
 const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
 
 const index = new TranscriptIndex();
+const inventory = new InventoryIndex();
+const projectPaths = () => (snap.source === 'demo' ? [] : snap.projects.map((p) => p.path));
+function rescan() {
+  inventory.scan(projectPaths()).catch((err) => console.error('inventory scan failed:', err));
+}
 let snap: Snapshot = demoSnapshot();
 
 async function tick() {
@@ -106,6 +113,17 @@ const server = http.createServer(async (req, res) => {
       return d ? json(res, 200, d) : json(res, 404, { error: 'unknown project' });
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/inventory') {
+      if (inventory.stale()) rescan();
+      const q = url.searchParams.get('q');
+      return json(res, 200, q ? { scannedAt: inventory.get().scannedAt, hits: searchInventory(inventory.get(), q, 200) } : inventory.get());
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/inventory/rescan') {
+      rescan();
+      return json(res, 202, { scanning: true });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/delegations') {
       const d = addDelegation(JSON.parse(await readBody(req, 16 * 1024)));
       return d ? json(res, 201, { ok: true }) : json(res, 400, { error: 'expected a delegation object' });
@@ -122,7 +140,7 @@ const server = http.createServer(async (req, res) => {
       const send = (e: AskEvent) => {
         if (!res.writableEnded) res.write(`data: ${JSON.stringify(e)}\n\n`);
       };
-      await ask(body, snap, detail, send, abort.signal);
+      await ask(body, snap, detail, send, abort.signal, inventory.get());
       return res.end();
     }
 
@@ -135,6 +153,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 await tick();
+rescan(); // the first inventory scan runs in the background
 let busy = false;
 setInterval(async () => {
   if (busy) return; // a slow first parse must not stack refreshes

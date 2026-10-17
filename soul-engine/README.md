@@ -41,6 +41,27 @@ The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a ch
 - Model: `claude-opus-5-5` at `low` effort, with server-side refusal fallback turned on. Override with `SOUL_MODEL` and `SOUL_EFFORT`.
 - **Privacy:** asking a question sends that context, including excerpts of your recent prompts and replies, to the Claude API. Stats on their own never leave your machine. The hub listens on `127.0.0.1` only.
 
+## Project inventory
+
+Press **INVENTORY** in the top bar, or type `/find <text>` in the terminal, to search what every project runs on:
+
+| Category | What it lists | Read from |
+| --- | --- | --- |
+| Tools and services | Frameworks, databases, SDKs and outside services | `package.json`, `requirements.txt`, `.env.example` names |
+| API keys | Every key, token or secret **by name**, the API it is for, and the files that use it. Never the value | `.env.example`, `process.env.*`, `Deno.env.get`, CI `secrets.*` |
+| APIs called | Outside APIs the code calls over HTTP, and the API behind each SDK | `https://api.…` in source, `package.json` |
+| Hosting | Workers, routes and bindings, Vercel, Netlify, Docker, Supabase functions, deploy workflows | `wrangler.*`, `vercel.json`, `netlify.toml`, compose files, `.github/workflows` |
+| Domains | Custom domains and platform addresses on your own domains | config files and docs |
+| E-mail addresses | Senders (`noreply@…`), support, account owners and admins, demo accounts, service accounts | every text file except unit tests |
+| Sign-in | Google or other OAuth, e-mail links, passwords, two-factor, personas, API keys | source files |
+| Jobs and CI | GitHub workflows and schedules, Cloudflare and Vercel crons, `pg_cron` | workflows, configs, migrations |
+| Defaults | Ports, Node version, regions, time zone, currency, AI models referenced | scripts, configs, source |
+| Access Register | Rows of `ACCESS-REGISTER.md` where a repo keeps one (REKA Handover kit) | `docs/continuity/` |
+
+Every fact shows the file and line it came from. Ask the core in plain words ("which projects send e-mail from noreply@…?", "where is the Stripe key used?") and it answers from the inventory; without Claude credentials it answers with the closest matches.
+
+**Safety.** The scan is read-only and runs on your machine. It never opens `.env` files (only `.env.example` and similar, names only), and anything that looks like a password, key or token in a line is replaced with `[hidden]`. Addresses on your own domains (`SOUL_OWN_DOMAINS`) and role addresses (`noreply@`, `support@`) are shown in full; personal and client addresses are masked (`a•••@client.com`). Copies and worktrees of one repo are shown as one project. The inventory is kept in memory, rebuilt every 15 minutes or on **Rescan**, and never written into this repo. Asking a question sends the relevant part to the Claude API, like any other question.
+
 ## Config
 
 | Variable | Default | |
@@ -51,11 +72,14 @@ The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a ch
 | `SOUL_PORT` | `7777` | Hub port (the Vite dev server proxies `/api` to it) |
 | `SOUL_DAYS` | `30` | Skip transcripts untouched for longer than this |
 | `SOUL_DEMO` | — | `1` forces the simulated projects |
+| `SOUL_INVENTORY_ROOTS` | — | Folders whose sub-folders are projects to inventory, besides those Claude Code worked in (`;` or `,` separated) |
+| `SOUL_OWN_DOMAINS` | — | Your domains: addresses on them are shown in full |
+| `SOUL_INVENTORY_EXCLUDE` | — | Regular expression of folders to leave out |
 
 ## Layout
 
 ```
-server/        hub: transcripts.ts (stats), git.ts, context.ts, ask.ts (Claude), demo.ts, index.ts (HTTP + SSE)
-src/           UI: SoulCore (d3), DataOrbits, Terminal, ProjectsPanel, FocusPanel
+server/        hub: transcripts.ts (stats), git.ts, context.ts, ask.ts (Claude), inventory.ts (infra, keys, tools), demo.ts, index.ts (HTTP + SSE)
+src/           UI: SoulCore (d3), DataOrbits, Terminal, ProjectsPanel, FocusPanel, InventoryPanel
 src/types.ts   types shared by both sides
 ```
