@@ -1,0 +1,35 @@
+{
+  "name": "reka-soul-engine",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "REKA Soul Engine: a live dashboard and Q&A core for all your Claude Code projects",
+  "scripts": {
+    "dev": "concurrently -k -n hub,web -c magenta,cyan \"npm:dev:hub\" \"npm:dev:web\"",
+    "dev:hub": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "tsx server/index.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
+    "d3": "^7.9.0",
+    "lucide-react": "^1.59.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/d3": "^7.4.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
+  }
+}

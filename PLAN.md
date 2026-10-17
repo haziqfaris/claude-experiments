@@ -2,6 +2,8 @@
 
 A mod plus a local hub plus a HUD dashboard to **track, monitor and manage** every Claude Code session you run. You can see token and cost burn live, and you can send work from an expensive session (Opus) to a cheaper one (Sonnet or Haiku). The cheaper session does the work and sends the result back.
 
+> **Update:** the dashboard is now built on the REKA Soul Engine UI in [`soul-engine/`](soul-engine/README.md). It has its own hub that reads Claude Code transcripts directly, so it shows real stats before the mod exists. You can also ask it about any project; Claude answers from that project's live context. The JARVIS look in §5 is kept as an alternative design.
+
 ---
 
 ## 1. What we're building
