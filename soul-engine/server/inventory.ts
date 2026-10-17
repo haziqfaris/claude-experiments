@@ -478,6 +478,6 @@ export function offlineInventoryAnswer(inv: Inventory, question: string): string
     if (score) hits.set(`${p.name}|${f.value}|${f.label}`, { project: p.project === p.name ? p.name : `${p.project} / ${p.name}`, fact: f, score });
   }
   const top = [...hits.values()].sort((a, b) => b.score - a.score).slice(0, 15);
-  if (!top.length) return 'No inventory fact matches that. Try a service, domain or address, for example "resend", "antarax.ai" or "noreply".';
+  if (!top.length) return 'No inventory fact matches that. Try a service, domain or address, for example "resend", "example.com" or "noreply".';
   return ['Closest inventory matches:', ...top.map((h) => `• ${h.project} · ${h.fact.label}: ${h.fact.value}${h.fact.evidence[0] ? ` (${h.fact.evidence[0]})` : ''}`)].join('\n');
 }

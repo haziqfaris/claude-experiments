@@ -84,7 +84,7 @@ Every fact shows the file and line it came from. Ask the core in plain words ("w
 
 ### What the core can do with Claude credentials
 
-With `SOUL_ASK_API=on` and `ANTHROPIC_API_KEY` set, the terminal answers with Claude and can use **read-only tools** when the context is not enough. It shows each step under the answer (⚙ read angka/wrangler.jsonc):
+With `SOUL_ASK_API=on` and `ANTHROPIC_API_KEY` set, the terminal answers with Claude and can use **read-only tools** when the context is not enough. It shows each step under the answer (⚙ read api/wrangler.jsonc):
 
 | Tool | Does |
 | --- | --- |

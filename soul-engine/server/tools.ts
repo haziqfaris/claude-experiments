@@ -36,7 +36,7 @@ const tool = (name: string, description: string, properties: Record<string, unkn
 
 export const SOUL_TOOLS: Anthropic.Beta.BetaTool[] = [
   tool('search_inventory', 'Search every repo\'s inventory (tools, API keys by name, APIs called, hosting, domains, e-mail addresses, sign-in, jobs, defaults). Returns matching facts with file:line evidence.', { query: { ...str, description: 'Words to match, e.g. "resend", "SERVICE_ROLE", "noreply"' } }, ['query']),
-  tool('project_inventory', 'The full inventory of one project (all its repos) or one repo, including environment variable names.', { name: { ...str, description: 'Project name (e.g. "PLExyz") or repo name (e.g. "plexyz-grid")' } }, ['name']),
+  tool('project_inventory', 'The full inventory of one project (all its repos) or one repo, including environment variable names.', { name: { ...str, description: 'Project name (e.g. "Payments") or repo name (e.g. "payments-api")' } }, ['name']),
   tool('list_files', 'List tracked files in a repo, optionally only paths containing some text.', { repo: str, contains: { ...str, description: 'Optional text the path must contain' } }, ['repo']),
   tool('search_code', 'Search a repo\'s tracked files for exact text (git grep). Returns file:line and the line, secrets hidden.', { repo: str, text: str }, ['repo', 'text']),
   tool('read_file', 'Read a text file from a repo (up to about 400 lines; .env files are refused; secret-looking values are hidden).', { repo: str, path: { ...str, description: 'Path inside the repo' }, from_line: { type: 'integer', description: 'Optional first line, 1-based' } }, ['repo', 'path']),

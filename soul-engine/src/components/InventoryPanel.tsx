@@ -213,7 +213,7 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk, s
         <div className="relative flex-1 min-w-[220px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-reka-cyan/60" />
           <label className="sr-only" htmlFor="inv-q">Search the inventory</label>
-          <input id="inv-q" ref={inputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search: resend, gemini, noreply, antarax.ai, cron…" autoComplete="off"
+          <input id="inv-q" ref={inputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search: resend, gemini, noreply, example.com, cron…" autoComplete="off"
             className="w-full bg-reka-dark/60 border border-reka-cyan/30 rounded pl-9 pr-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-reka-cyan placeholder-gray-500" />
         </div>
         <button type="button" disabled={!q.trim()} onClick={() => { onAsk(`From the inventory${groupName ? ` of project ${groupName}` : ''}: ${q.trim()}`); onClose(); }}
@@ -253,7 +253,7 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk, s
           {!inv || (inv.scanning && !inv.projects.length) ? (
             <div className="text-xs font-mono text-reka-gold animate-pulse p-4">{'>'} Reading every repo for tools, keys, hosting and addresses…</div>
           ) : !shown.length ? (
-            <div className="text-xs font-mono text-gray-400 p-4">Nothing matches. Try a service (stripe), a key (SERVICE_ROLE), a domain (antarax.ai) or an address (noreply).</div>
+            <div className="text-xs font-mono text-gray-400 p-4">Nothing matches. Try a service (stripe), a key (SERVICE_ROLE), a domain (example.com) or an address (noreply).</div>
           ) : (
             shown.map(({ g, repos, missing, count }) => (
               <section key={g.name} className="mb-6">
