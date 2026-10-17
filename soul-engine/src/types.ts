@@ -160,7 +160,11 @@ export interface InventoryFact {
 
 export interface ProjectInventory {
   id: string;
+  /** Repo or folder name. */
   name: string;
+  /** The project it belongs to (projects.local.json), or its own name. */
+  project: string;
+  kind: string;
   path: string;
   repo: string | null;
   branch: string | null;
@@ -171,8 +175,20 @@ export interface ProjectInventory {
   facts: InventoryFact[];
 }
 
+/** A project and its repos, in display order. */
+export interface InventoryGroup {
+  name: string;
+  kind: string;
+  /** ProjectInventory ids of the repos scanned on this machine. */
+  repos: string[];
+  /** Repos of this project on GitHub (or in projects.local.json) that are not cloned here. */
+  missing: { name: string; url: string | null }[];
+}
+
 export interface Inventory {
   scannedAt: number;
   scanning: boolean;
+  /** One entry per repo (copies and worktrees merged). */
   projects: ProjectInventory[];
+  groups: InventoryGroup[];
 }

@@ -60,7 +60,8 @@ export async function ask(
   const named = snap.projects.filter((p) => question.toLowerCase().includes(p.name.toLowerCase()));
   const wantsInventory = !!inventory && inventory.projects.length > 0 && INVENTORY_QUESTION.test(question);
   // Named or focused projects get their full inventory; "which projects…" questions get every project's.
-  const invScope = named.length ? named.map((p) => p.name) : req.focusId ? picked.map((p) => p.name) : null;
+  const namedGroups = (inventory?.groups ?? []).filter((g) => g.name.length > 2 && question.toLowerCase().includes(g.name.toLowerCase())).map((g) => g.name);
+  const invScope = namedGroups.length || named.length ? [...namedGroups, ...named.map((p) => p.name)] : req.focusId ? picked.map((p) => p.name) : null;
   const details = (await Promise.all(picked.map((p) => detail(p.id)))).filter((d): d is ProjectDetail => d != null);
 
   const offline = () => {

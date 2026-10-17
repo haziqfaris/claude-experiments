@@ -9,7 +9,8 @@ import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { Inventory, InventoryCategory, InventoryFact, ProjectInventory } from '../src/types';
+import { fileURLToPath } from 'node:url';
+import type { Inventory, InventoryCategory, InventoryFact, InventoryGroup, ProjectInventory } from '../src/types';
 
 const run = promisify(execFile);
 const OWN = (process.env.SOUL_OWN_DOMAINS ?? '').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
@@ -18,6 +19,23 @@ const ROOTS = (process.env.SOUL_INVENTORY_ROOTS ?? '').split(path.delimiter === 
 const MAX_FILES = 4000;
 const MAX_BYTES = 400_000;
 const RESCAN_MS = 15 * 60_000;
+const PROJECTS_FILE = process.env.SOUL_PROJECTS_FILE ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../projects.local.json');
+const KIND_ORDER = ['product', 'platform', 'client', 'internal', 'web', 'other'];
+
+interface GroupConfig { name: string; kind: string; repos: string[] }
+async function loadGroups(): Promise<GroupConfig[]> {
+  try {
+    const raw = JSON.parse(await fs.readFile(PROJECTS_FILE, 'utf8')) as { projects?: Record<string, { kind?: string; repos?: string[] }> };
+    return Object.entries(raw.projects ?? {}).map(([name, g]) => ({ name, kind: g.kind ?? 'other', repos: (g.repos ?? []).map((r) => r.toLowerCase()) }));
+  } catch { return []; }
+}
+/** Your GitHub repos, so ones not cloned here still show under their project. Needs the gh CLI; skipped without it. */
+async function githubRepos(): Promise<{ name: string; url: string }[]> {
+  try {
+    const { stdout } = await run('gh', ['repo', 'list', '--limit', '300', '--json', 'name,url'], { timeout: 20_000 });
+    return JSON.parse(stdout) as { name: string; url: string }[];
+  } catch { return []; }
+}
 
 const TEXT = /\.(md|mdx|txt|ts|tsx|js|jsx|mjs|cjs|json|jsonc|toml|ya?ml|sql|html|astro|vue|svelte|py|sh|ps1|ini|cfg|conf)$|(^|\/)(\.env\.(example|sample|template)|Dockerfile|Procfile|CNAME|_redirects|_headers)$/i;
 const SKIP = /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.svelte-kit|\.output|\.vercel|\.wrangler|\.turbo|coverage|vendor|venv|__pycache__|\.git)\/|(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$|\.min\.(js|css)$|(^|\/)supabase\/functions\/[^/]+\/index\.ts$/i;
@@ -301,14 +319,14 @@ export async function scanProject(dir: string, name = path.basename(dir)): Promi
 
   const remote = (await git(dir, ['remote', 'get-url', 'origin'])).replace(/\/\/[^@/]+@/, '//').replace(/\.git$/, '') || null;
   return {
-    id: dir.toLowerCase(), name, path: dir, repo: remote, branch: (await git(dir, ['branch', '--show-current'])) || null,
+    id: dir.toLowerCase(), name: remote ? remote.split('/').pop()! : name, project: name, kind: 'other', path: dir, repo: remote, branch: (await git(dir, ['branch', '--show-current'])) || null,
     scannedAt: Date.now(), filesScanned: scanned, facts: facts.list(),
   };
 }
 
 // ---------- the index the hub keeps ----------
 export class InventoryIndex {
-  private inv: Inventory = { scannedAt: 0, scanning: false, projects: [] };
+  private inv: Inventory = { scannedAt: 0, scanning: false, projects: [], groups: [] };
   private dirs = new Set<string>();
 
   get(): Inventory { return this.inv; }
@@ -351,11 +369,39 @@ export class InventoryIndex {
       const merged: ProjectInventory[] = [];
       for (const group of byRepo.values()) {
         const repoName = group[0].repo ? group[0].repo.split('/').pop()!.toLowerCase() : '';
-        group.sort((a, b) => Number(b.name.toLowerCase() === repoName) - Number(a.name.toLowerCase() === repoName) || b.filesScanned - a.filesScanned);
+        const named = (p: ProjectInventory) => Number(path.basename(p.path).toLowerCase() === repoName);
+        group.sort((a, b) => named(b) - named(a) || b.filesScanned - a.filesScanned);
         const [main, ...copies] = group;
         merged.push(copies.length ? { ...main, alsoAt: copies.map((c) => c.path) } : main);
       }
-      this.inv = { scannedAt: Date.now(), scanning: false, projects: merged.sort((a, b) => a.name.localeCompare(b.name)) };
+      // Group repos into projects (projects.local.json); a repo nobody grouped is its own project.
+      const config = await loadGroups();
+      const folderOf = (p: ProjectInventory) => path.basename(p.path).toLowerCase();
+      const groupOf = (p: ProjectInventory) => config.find((g) => g.repos.includes(p.name.toLowerCase()) || g.repos.includes(folderOf(p)));
+      for (const p of merged) { const g = groupOf(p); p.project = g ? g.name : p.name; p.kind = g ? g.kind : 'other'; }
+      const have = new Set(merged.flatMap((p) => [p.name.toLowerCase(), folderOf(p)]));
+      const gh = await githubRepos();
+      const missingFor = (g: GroupConfig | null, name: string) => {
+        const names = g ? g.repos : [name.toLowerCase()];
+        return names.filter((r) => !have.has(r) && (gh.length === 0 || gh.some((x) => x.name.toLowerCase() === r)))
+          .filter((r, i, a) => a.indexOf(r) === i)
+          .map((r) => ({ name: gh.find((x) => x.name.toLowerCase() === r)?.name ?? r, url: gh.find((x) => x.name.toLowerCase() === r)?.url ?? null }));
+      };
+      const groups = new Map<string, InventoryGroup>();
+      for (const g of config) groups.set(g.name, { name: g.name, kind: g.kind, repos: [], missing: missingFor(g, g.name) });
+      for (const p of merged) {
+        const g = groups.get(p.project) ?? { name: p.project, kind: p.kind, repos: [], missing: [] };
+        g.repos.push(p.id); groups.set(p.project, g);
+      }
+      // GitHub repos that belong to no project and are not cloned here
+      const grouped = new Set(config.flatMap((g) => g.repos));
+      for (const r of gh) {
+        const k = r.name.toLowerCase();
+        if (!have.has(k) && !grouped.has(k) && !(EXCLUDE && EXCLUDE.test(r.name))) groups.set(r.name, { name: r.name, kind: 'other', repos: [], missing: [{ name: r.name, url: r.url }] });
+      }
+      const ordered = [...groups.values()].filter((g) => g.repos.length || g.missing.length)
+        .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.name.localeCompare(b.name));
+      this.inv = { scannedAt: Date.now(), scanning: false, projects: merged.sort((a, b) => a.name.localeCompare(b.name)), groups: ordered };
     } catch (err) {
       this.inv = { ...this.inv, scanning: false };
       throw err;
@@ -375,8 +421,8 @@ export function searchInventory(inv: Inventory, q: string, limit = 60): { projec
   const words = q.toLowerCase().split(/\s+/).filter((w) => w.length > 1);
   const out: { project: string; fact: InventoryFact }[] = [];
   for (const p of inv.projects) for (const f of p.facts) {
-    const hay = `${p.name} ${CATEGORY_LABEL[f.category]} ${f.category} ${f.label} ${f.value} ${f.evidence.join(' ')}`.toLowerCase();
-    if (words.every((w) => hay.includes(w))) out.push({ project: p.name, fact: f });
+    const hay = `${p.project} ${p.name} ${CATEGORY_LABEL[f.category]} ${f.category} ${f.label} ${f.value} ${f.evidence.join(' ')}`.toLowerCase();
+    if (words.every((w) => hay.includes(w))) out.push({ project: p.project === p.name ? p.name : `${p.project} / ${p.name}`, fact: f });
     if (out.length >= limit) return out;
   }
   return out;
@@ -386,12 +432,12 @@ export function searchInventory(inv: Inventory, q: string, limit = 60): { projec
 export const INVENTORY_QUESTION = /\b(apis?|sdks?|e-?mails?|mail|sender|smtp|login|log ?in|sign[- ]?in|accounts?|admins?|owners?|domains?|dns|host(ed|ing)?|deploy(ed|s)?|tools?|services?|providers?|infra(structure)?|stack|cron|jobs?|schedule[ds]?|defaults?|ports?|models?|env|variables?|secrets?|keys?|passwords?|oauth|auth|regions?|workers?|vercel|cloudflare|supabase|appwrite|stripe|resend|gemini|openai|anthropic|telegram|register|credentials?)\b/i;
 
 export function inventoryContext(inv: Inventory, projectNames: string[] | null, maxChars = 45_000): string {
-  const list = projectNames?.length ? inv.projects.filter((p) => projectNames.some((n) => p.name.toLowerCase() === n.toLowerCase() || p.path.toLowerCase().endsWith(n.toLowerCase()))) : inv.projects;
+  const list = projectNames?.length ? inv.projects.filter((p) => projectNames.some((n) => [p.name, p.project, path.basename(p.path)].some((k) => k.toLowerCase() === n.toLowerCase()))) : [...inv.projects].sort((a, b) => a.project.localeCompare(b.project));
   const head = [`Project inventory (scanned ${new Date(inv.scannedAt).toString()}; ${inv.projects.length} project folders). Facts were read from each repo's files; "evidence" is the file and line. Secret values are never collected; masked addresses (•••) are personal or client addresses.`];
   let used = head[0].length;
   const blocks: string[] = [];
   for (const p of list) {
-    const lines = [`### ${p.name}${p.repo ? ` (${p.repo})` : ''}`];
+    const lines = [`### Project ${p.project} · repo ${p.name}${p.repo ? ` (${p.repo})` : ' (local only)'}`];
     for (const f of p.facts) {
       if (f.category === 'env' && !projectNames?.length) continue; // keep the all-projects view short
       lines.push(`- [${CATEGORY_LABEL[f.category]}] ${f.label}: ${f.value}${f.evidence.length ? ` (${f.evidence.slice(0, 2).join(', ')})` : ''}`);
@@ -414,7 +460,7 @@ export function offlineInventoryAnswer(inv: Inventory, question: string): string
   for (const { p, f, hay } of all) {
     if (key && !hay.includes(key.replace(/s$/, ''))) continue;
     const score = words.reduce((n, w) => n + (hay.includes(w.replace(/s$/, '')) ? weight.get(w) ?? 0 : 0), 0);
-    if (score) hits.set(`${p.name}|${f.value}|${f.label}`, { project: p.name, fact: f, score });
+    if (score) hits.set(`${p.name}|${f.value}|${f.label}`, { project: p.project === p.name ? p.name : `${p.project} / ${p.name}`, fact: f, score });
   }
   const top = [...hits.values()].sort((a, b) => b.score - a.score).slice(0, 15);
   if (!top.length) return 'No inventory fact matches that. Try a service, domain or address, for example "resend", "antarax.ai" or "noreply".';

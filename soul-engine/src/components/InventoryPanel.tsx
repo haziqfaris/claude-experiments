@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, Database, MessageSquare, RefreshCw, Search, X } from 'lucide-react';
-import { Inventory, InventoryCategory, InventoryFact } from '../types';
+import { ChevronRight, Copy, Database, FolderGit2, MessageSquare, RefreshCw, Search, X } from 'lucide-react';
+import { Inventory, InventoryCategory, InventoryFact, InventoryGroup, ProjectInventory } from '../types';
 import { ago } from '../format';
 
 interface InventoryPanelProps {
@@ -23,10 +23,11 @@ const CATS: { id: InventoryCategory; label: string; tone: string }[] = [
   { id: 'env', label: 'Env names', tone: 'text-gray-400 border-gray-600/40' },
 ];
 const TONE = Object.fromEntries(CATS.map(c => [c.id, c])) as Record<InventoryCategory, (typeof CATS)[number]>;
+const KIND_LABEL: Record<string, string> = { product: 'Products', platform: 'Platform', client: 'Client work', internal: 'Internal', web: 'Websites', other: 'Other repos' };
 
-function matches(project: string, f: InventoryFact, words: string[]): boolean {
+function factMatches(group: string, repo: ProjectInventory, f: InventoryFact, words: string[]): boolean {
   if (!words.length) return true;
-  const hay = `${project} ${TONE[f.category].label} ${f.label} ${f.value} ${f.evidence.join(' ')}`.toLowerCase();
+  const hay = `${group} ${repo.name} ${TONE[f.category].label} ${f.label} ${f.value} ${f.evidence.join(' ')}`.toLowerCase();
   return words.every(w => hay.includes(w));
 }
 
@@ -34,9 +35,10 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk })
   const [inv, setInv] = useState<Inventory | null>(null);
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<InventoryCategory | 'all'>('all');
-  const [project, setProject] = useState('');
+  const [groupName, setGroupName] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -56,33 +58,49 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk })
   }, [open, onClose]);
 
   const words = q.toLowerCase().split(/\s+/).filter(w => w.length > 1);
-  const groups = useMemo(() => {
-    if (!inv) return [];
-    return inv.projects
-      .filter(p => !project || p.id === project)
-      .map(p => ({ p, facts: p.facts.filter(f => (cat === 'all' ? f.category !== 'env' || words.length > 0 : f.category === cat) && matches(p.name, f, words)) }))
-      .filter(g => g.facts.length);
-  }, [inv, project, cat, q]);
+  const byId = useMemo(() => new Map((inv?.projects ?? []).map(p => [p.id, p])), [inv]);
+
+  // project → repo → facts, after search and category filters
+  const view = useMemo(() => {
+    return (inv?.groups ?? []).map(g => {
+      const repos = g.repos.map(id => byId.get(id)).filter((r): r is ProjectInventory => !!r).map(r => ({
+        repo: r,
+        facts: r.facts.filter(f => (cat === 'all' ? f.category !== 'env' || words.length > 0 : f.category === cat) && factMatches(g.name, r, f, words)),
+      }));
+      const missing = words.length || cat !== 'all' ? g.missing.filter(m => words.every(w => `${g.name} ${m.name}`.toLowerCase().includes(w)) && cat === 'all') : g.missing;
+      const count = repos.reduce((n, r) => n + r.facts.length, 0);
+      return { g, repos: words.length || cat !== 'all' ? repos.filter(r => r.facts.length) : repos, missing, count };
+    }).filter(v => v.repos.length || v.missing.length);
+  }, [inv, byId, cat, q]);
+  const shown = groupName ? view.filter(v => v.g.name === groupName) : view;
+  const total = shown.reduce((n, v) => n + v.count, 0);
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const p of inv?.projects ?? []) if (!project || p.id === project) for (const f of p.facts) if (matches(p.name, f, words)) c[f.category] = (c[f.category] ?? 0) + 1;
+    for (const v of (groupName ? view.filter(x => x.g.name === groupName) : view)) for (const g of (inv?.groups ?? []).filter(x => x.name === v.g.name)) for (const id of g.repos) {
+      const r = byId.get(id); if (!r) continue;
+      for (const f of r.facts) if (factMatches(g.name, r, f, words)) c[f.category] = (c[f.category] ?? 0) + 1;
+    }
     return c;
-  }, [inv, project, q]);
-  const total = groups.reduce((n, g) => n + g.facts.length, 0);
+  }, [view, groupName, inv, byId, q]);
 
   const copy = async () => {
-    const md = groups.map(g => [`## ${g.p.name}${g.p.repo ? ` (${g.p.repo})` : ''}`, ...g.facts.map(f => `- ${TONE[f.category].label} · ${f.label}: ${f.value}${f.evidence[0] ? ` (${f.evidence[0]})` : ''}`)].join('\n')).join('\n\n');
+    const md = shown.map(({ g, repos, missing }) => [
+      `# ${g.name}`,
+      ...repos.map(({ repo, facts }) => [`## ${repo.name}${repo.repo ? ` (${repo.repo})` : ' (local only)'}`, ...CATS.filter(c => facts.some(f => f.category === c.id)).map(c => [`### ${c.label}`, ...facts.filter(f => f.category === c.id).map(f => `- ${f.label}: ${f.value}${f.evidence[0] ? ` (${f.evidence[0]})` : ''}`)].join('\n'))].join('\n\n')),
+      ...(missing.length ? [`Not cloned on this machine: ${missing.map(m => m.name).join(', ')}`] : []),
+    ].join('\n\n')).join('\n\n');
     try { await navigator.clipboard.writeText(md); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* clipboard refused */ }
   };
 
   if (!open) return null;
+  const kinds = [...new Set(view.map(v => v.g.kind))];
   return (
-    <div className="panel-in fixed inset-x-4 top-28 bottom-6 z-[60] mx-auto max-w-5xl flex flex-col gap-3 glass-panel rounded-lg p-4" style={{ background: 'rgba(4, 8, 17, 0.97)' }} role="dialog" aria-label="Project inventory">
+    <div className="panel-in fixed inset-x-4 top-28 bottom-6 z-[60] mx-auto max-w-6xl flex flex-col gap-3 glass-panel rounded-lg p-4" style={{ background: 'rgba(4, 8, 17, 0.97)' }} role="dialog" aria-label="Project inventory">
       <div className="flex flex-wrap items-center gap-3 border-b border-reka-cyan/20 pb-2">
         <Database size={14} className="text-reka-cyan" />
-        <span className="text-xs font-mono tracking-widest text-reka-cyan uppercase">Inventory // Infra, keys and tools</span>
+        <span className="text-xs font-mono tracking-widest text-reka-cyan uppercase">Inventory // Projects and repos</span>
         <span className="text-[10px] font-mono text-gray-400">
-          {inv ? `${inv.projects.length} projects · scanned ${inv.scannedAt ? ago(inv.scannedAt) : '—'}${inv.scanning ? ' · scanning…' : ''}` : 'linking…'}
+          {inv ? `${inv.groups.length} projects · ${inv.projects.length} repos scanned · ${inv.groups.reduce((n, g) => n + g.missing.length, 0)} not cloned · ${inv.scannedAt ? ago(inv.scannedAt) : '—'}${inv.scanning ? ' · scanning…' : ''}` : 'linking…'}
         </span>
         <div className="ml-auto flex items-center gap-2">
           <button type="button" onClick={() => fetch('/api/inventory/rescan', { method: 'POST' }).then(() => setInv(v => (v ? { ...v, scanning: true } : v)))} className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-reka-cyan border border-reka-cyan/30 rounded px-2 py-1 hover:bg-reka-cyan/10"><RefreshCw size={11} className={inv?.scanning ? 'animate-spin' : ''} /> Rescan</button>
@@ -98,12 +116,7 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk })
           <input id="inv-q" ref={inputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search: resend, gemini, noreply, antarax.ai, cron…" autoComplete="off"
             className="w-full bg-reka-dark/60 border border-reka-cyan/30 rounded pl-9 pr-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-reka-cyan placeholder-gray-500" />
         </div>
-        <label className="sr-only" htmlFor="inv-project">Project</label>
-        <select id="inv-project" value={project} onChange={e => setProject(e.target.value)} className="bg-reka-dark/70 border border-reka-cyan/30 rounded text-[11px] font-mono text-reka-cyan px-2 py-2 max-w-[200px] focus:outline-none">
-          <option value="">ALL PROJECTS</option>
-          {(inv?.projects ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <button type="button" disabled={!q.trim()} onClick={() => { onAsk(`From the inventory: ${q.trim()}${project ? ` (project ${inv?.projects.find(p => p.id === project)?.name})` : ''}`); onClose(); }}
+        <button type="button" disabled={!q.trim()} onClick={() => { onAsk(`From the inventory${groupName ? ` of project ${groupName}` : ''}: ${q.trim()}`); onClose(); }}
           className="flex items-center gap-1 text-[11px] font-mono uppercase tracking-widest text-reka-magenta border border-reka-magenta/40 bg-reka-magenta/10 rounded px-3 py-2 hover:bg-reka-magenta/20 disabled:opacity-40"><MessageSquare size={12} /> Ask the core</button>
       </div>
 
@@ -117,25 +130,86 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk })
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-hide pr-1 select-text">
-        {!inv || (inv.scanning && !inv.projects.length) ? (
-          <div className="text-xs font-mono text-reka-gold animate-pulse p-4">{'>'} Reading every project's files for tools, keys, hosting and addresses…</div>
-        ) : !total ? (
-          <div className="text-xs font-mono text-gray-400 p-4">Nothing matches. Try a service (stripe), a key (SERVICE_ROLE), a domain (antarax.ai) or an address (noreply).</div>
-        ) : (
-          groups.map(({ p, facts }) => (
-            <section key={p.id} className="mb-4">
-              <div className="flex flex-wrap items-baseline gap-2 sticky top-0 bg-[rgba(4,8,17,0.97)] py-1 z-10">
-                <h3 className="text-sm font-bold text-white neon-text tracking-wider">{p.name}</h3>
-                {p.repo && <a href={p.repo} target="_blank" rel="noreferrer" className="text-[10px] font-mono text-reka-cyan/70 hover:text-reka-cyan truncate">{p.repo.replace(/^https:\/\//, '')}</a>}
-                <span className="text-[10px] font-mono text-gray-500">{facts.length} fact{facts.length === 1 ? '' : 's'}{p.branch ? ` · ${p.branch}` : ''}</span>
-                {p.alsoAt && <span className="text-[10px] font-mono text-gray-500" title={p.alsoAt.join('\n')}>· also checked out in {p.alsoAt.length} other folder{p.alsoAt.length === 1 ? '' : 's'}</span>}
-              </div>
-              <div className="grid gap-1">
-                {facts.map((f, i) => (
-                  <div key={i} className="grid grid-cols-[92px_minmax(0,180px)_minmax(0,1fr)] gap-2 items-baseline text-[11px] font-mono border-b border-reka-cyan/5 py-1">
-                    <span className={`uppercase tracking-widest text-[9px] border rounded px-1.5 py-0.5 justify-self-start ${TONE[f.category].tone}`}>{TONE[f.category].label}</span>
-                    <span className="text-gray-400 truncate" title={f.label}>{f.label}</span>
+      <div className="flex-1 min-h-0 flex gap-4">
+        {/* projects */}
+        <nav className="w-56 shrink-0 overflow-y-auto scrollbar-hide hidden md:flex flex-col gap-3 border-r border-reka-cyan/10 pr-3" aria-label="Projects">
+          <button type="button" onClick={() => setGroupName(null)} className={`text-left text-[11px] font-mono uppercase tracking-widest px-2 py-1 rounded ${groupName == null ? 'bg-reka-cyan/15 text-white' : 'text-gray-400 hover:text-white'}`}>All projects</button>
+          {kinds.map(k => (
+            <div key={k} className="flex flex-col gap-0.5">
+              <span className="text-[9px] font-mono uppercase tracking-[0.2em] text-reka-cyan/50 px-2">{KIND_LABEL[k] ?? k}</span>
+              {view.filter(v => v.g.kind === k).map(v => (
+                <button key={v.g.name} type="button" onClick={() => { setGroupName(v.g.name); listRef.current?.scrollTo({ top: 0 }); }}
+                  className={`flex items-baseline justify-between gap-2 text-left text-xs font-mono px-2 py-1 rounded ${groupName === v.g.name ? 'bg-reka-cyan/15 text-white' : 'text-gray-300 hover:text-white hover:bg-reka-cyan/5'}`}>
+                  <span className="truncate">{v.g.name}</span>
+                  <span className="text-[10px] text-gray-500 shrink-0">{v.repos.length}{v.missing.length ? `+${v.missing.length}` : ''} repo{v.repos.length + v.missing.length === 1 ? '' : 's'}</span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+
+        {/* repos and facts */}
+        <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto scrollbar-hide pr-1 select-text">
+          {!inv || (inv.scanning && !inv.projects.length) ? (
+            <div className="text-xs font-mono text-reka-gold animate-pulse p-4">{'>'} Reading every repo for tools, keys, hosting and addresses…</div>
+          ) : !shown.length ? (
+            <div className="text-xs font-mono text-gray-400 p-4">Nothing matches. Try a service (stripe), a key (SERVICE_ROLE), a domain (antarax.ai) or an address (noreply).</div>
+          ) : (
+            shown.map(({ g, repos, missing, count }) => (
+              <section key={g.name} className="mb-6">
+                <div className="flex flex-wrap items-baseline gap-3 border-b border-reka-cyan/20 pb-1 mb-2">
+                  <h3 className="text-base font-bold text-white neon-text tracking-wider">{g.name}</h3>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-reka-cyan/60">{KIND_LABEL[g.kind] ?? g.kind}</span>
+                  <span className="text-[10px] font-mono text-gray-500">{repos.length} repo{repos.length === 1 ? '' : 's'} here · {count} fact{count === 1 ? '' : 's'}{missing.length ? ` · ${missing.length} not cloned` : ''}</span>
+                </div>
+                {repos.map(({ repo, facts }) => <RepoBlock key={repo.id} repo={repo} facts={facts} openByDefault={repos.length === 1 || words.length > 0 || cat !== 'all' || groupName != null} />)}
+                {missing.length > 0 && (
+                  <div className="text-[11px] font-mono text-gray-500 mt-1 pl-1">
+                    Not cloned on this machine, so not inventoried:{' '}
+                    {missing.map((m, i) => (
+                      <span key={m.name}>{i > 0 && ', '}{m.url ? <a href={m.url} target="_blank" rel="noreferrer" className="text-reka-cyan/70 hover:text-reka-cyan">{m.name}</a> : m.name}</span>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ))
+          )}
+          {total > 0 && <div className="h-2" />}
+        </div>
+      </div>
+      <div className="text-[10px] font-mono text-gray-500">Read from each repo's files on this machine. Never a password or key value: keys are listed by name with the API they call. Personal and client addresses are masked.</div>
+    </div>
+  );
+};
+
+const RepoBlock: React.FC<{ repo: ProjectInventory; facts: InventoryFact[]; openByDefault: boolean }> = ({ repo, facts, openByDefault }) => {
+  const [open, setOpen] = useState(openByDefault);
+  useEffect(() => setOpen(openByDefault), [openByDefault]);
+  const byCat = CATS.map(c => ({ c, items: facts.filter(f => f.category === c.id) })).filter(x => x.items.length);
+  return (
+    <div className="mb-2 rounded border border-reka-cyan/10 bg-reka-dark/30">
+      <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} className="w-full flex flex-wrap items-baseline gap-2 px-3 py-2 text-left hover:bg-reka-cyan/5">
+        <ChevronRight size={12} className={`self-center text-reka-cyan transition-transform ${open ? 'rotate-90' : ''}`} />
+        <FolderGit2 size={12} className="self-center text-reka-cyan/70" />
+        <span className="text-sm font-mono text-white">{repo.name}</span>
+        <span className="text-[10px] font-mono text-gray-500 truncate">{repo.repo ? repo.repo.replace(/^https:\/\//, '') : 'local only, not on GitHub'}</span>
+        {repo.branch && <span className="text-[10px] font-mono text-reka-gold/80">{repo.branch}</span>}
+        <span className="ml-auto flex flex-wrap gap-1">
+          {byCat.slice(0, 6).map(({ c, items }) => <span key={c.id} className={`text-[9px] font-mono uppercase tracking-widest border rounded px-1.5 ${c.tone}`}>{c.label} {items.length}</span>)}
+        </span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          <div className="text-[10px] font-mono text-gray-500 mb-2 truncate" title={[repo.path, ...(repo.alsoAt ?? [])].join('\n')}>
+            {repo.path}{repo.alsoAt?.length ? ` · also checked out in ${repo.alsoAt.length} other folder${repo.alsoAt.length === 1 ? '' : 's'}` : ''}
+          </div>
+          {byCat.map(({ c, items }) => (
+            <div key={c.id} className="mb-2">
+              <div className={`text-[10px] font-mono uppercase tracking-widest mb-1 ${c.tone.split(' ')[0]}`}>{c.label} · {items.length}</div>
+              <div className="grid gap-0.5">
+                {items.map((f, i) => (
+                  <div key={i} className="grid grid-cols-[minmax(0,200px)_minmax(0,1fr)] gap-3 items-baseline text-[11px] font-mono border-b border-reka-cyan/5 py-1">
+                    <span className="text-gray-400 truncate" title={f.label}>{f.label === f.value ? (f.category === 'service' ? 'Uses' : '') : f.label}</span>
                     <span className="min-w-0">
                       <span className="text-white break-all">{f.value}</span>
                       {f.masked && <span className="text-gray-500"> · masked</span>}
@@ -144,11 +218,10 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk })
                   </div>
                 ))}
               </div>
-            </section>
-          ))
-        )}
-      </div>
-      <div className="text-[10px] font-mono text-gray-500">Read from each repo's files on this machine. Never a password or key value: keys are listed by name with the API they call. Personal and client addresses are masked.</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
