@@ -1,0 +1,14 @@
+{
+  "name": "claude-experiments",
+  "description": "Claude Code mods from haziqfaris/claude-experiments",
+  "owner": {
+    "name": "haziqfaris"
+  },
+  "plugins": [
+    {
+      "name": "soul-relay",
+      "source": "./mods/soul-relay",
+      "description": "Delegate work from an expensive Claude Code session to cheaper models and get the result back in your chat."
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "soul-relay",
+  "version": "0.1.0",
+  "description": "Delegate work from an expensive session to cheaper models (Haiku/Sonnet), in-session or to worker sessions, and get the result back in your chat.",
+  "author": {
+    "name": "haziqfaris"
+  },
+  "userConfig": {
+    "hubUrl": {
+      "type": "string",
+      "title": "Soul Engine hub URL",
+      "description": "Where delegations are reported for the dashboard. Leave empty to report nothing.",
+      "default": "http://127.0.0.1:7777"
+    },
+    "effort": {
+      "type": "string",
+      "title": "Effort for in-session delegations",
+      "description": "Thinking effort the cheaper model uses for the delegate tool and /delegate.",
+      "default": "low",
+      "options": [
+        "low",
+        "medium",
+        "high"
+      ]
+    }
+  }
+}

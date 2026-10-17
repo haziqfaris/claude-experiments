@@ -30,6 +30,10 @@ The hub (`server/`) reads Claude Code's own session transcripts in `~/.claude/pr
 | Prompts, replies, tools, files | The newest entries in each session's transcript |
 | Branch, uncommitted files, commits | `git` in the project folder, cached for 20 s |
 
+## Delegation savings
+
+The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a cheaper model to `POST /api/delegations`. The dashboard then shows the total saved today in the top bar, the latest hand-offs in the Relay box, and the Soul Engine can answer questions about them. The hub keeps the last 300 reports in memory, so they reset when it restarts.
+
 ## Asking questions
 
 `POST /api/ask` picks the projects your question names, or the focused project, or the most recently active ones. It builds a context block from the stats table, recent prompts and replies, files touched, git state and the first part of `CLAUDE.md`/`README.md`, then streams Claude's answer back.

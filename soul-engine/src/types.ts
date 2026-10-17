@@ -65,6 +65,27 @@ export interface ProjectSnapshot {
   sessions: SessionSummary[];
 }
 
+export interface Delegation {
+  at: number;
+  sessionId: string;
+  cwd: string;
+  mainModel: string;
+  route: 'model' | 'subagent' | 'worker';
+  target: string;
+  model: string;
+  task: string;
+  tokens: number;
+  cost: number;
+  saved: number;
+}
+
+export interface RelayStats {
+  countToday: number;
+  costToday: number;
+  savedToday: number;
+  recent: Delegation[];
+}
+
 export interface Snapshot {
   generatedAt: number;
   source: 'transcripts' | 'demo';
@@ -81,6 +102,8 @@ export interface Snapshot {
   };
   /** Tokens processed per minute, oldest first, last 30 minutes. */
   burn: number[];
+  /** Work handed to cheaper models, as reported by the soul-relay mod. */
+  relay: RelayStats;
 }
 
 export interface GitInfo {

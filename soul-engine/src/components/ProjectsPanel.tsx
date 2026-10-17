@@ -76,6 +76,24 @@ const ProjectsPanel: React.FC<ProjectsPanelProps> = ({ snapshot, focusId, onFocu
       })}
     </div>
 
+    <div className="border-t border-reka-cyan/20 pt-2 flex flex-col gap-1">
+      <div className="flex justify-between text-[10px] font-mono tracking-widest text-reka-teal/80 uppercase">
+        <span>Relay // cheaper models</span>
+        <span>{snapshot.relay.countToday} today</span>
+      </div>
+      <div className="text-lg font-mono text-reka-teal" style={{ textShadow: '0 0 8px rgba(0,255,157,0.6)' }}>
+        saved ≈ {fmtCost(snapshot.relay.savedToday)}
+      </div>
+      {snapshot.relay.recent.slice(0, 3).map(d => (
+        <div key={`${d.at}-${d.task}`} className="text-[11px] font-mono text-gray-300 truncate" title={`${d.model} · ${d.route} · ${d.task}`}>
+          <span className="text-reka-gold">→ {d.target}</span> {d.task}
+        </div>
+      ))}
+      {snapshot.relay.recent.length === 0 && (
+        <p className="text-[11px] font-mono text-gray-400">Nothing delegated yet. Load the soul-relay mod to start.</p>
+      )}
+    </div>
+
     <div className="border-t border-reka-cyan/20 pt-2">
       <div className="flex justify-between text-[10px] font-mono tracking-widest text-reka-cyan/70 uppercase">
         <span>Token flux · 30m</span>

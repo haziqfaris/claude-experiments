@@ -8,6 +8,7 @@ import type { AskEvent, AskRequest, ProjectDetail, Snapshot } from '../src/types
 import { ask, soulModel } from './ask';
 import { demoDetail, demoSnapshot } from './demo';
 import { gitInfo, projectNotes } from './git';
+import { addDelegation, relayStats } from './relay';
 import { TranscriptIndex } from './transcripts';
 
 const PORT = Number(process.env.SOUL_PORT ?? 7777);
@@ -21,7 +22,7 @@ let snap: Snapshot = demoSnapshot();
 async function tick() {
   await index.refresh();
   const real = index.snapshot();
-  snap = FORCE_DEMO || real.projects.length === 0 ? demoSnapshot() : real;
+  snap = FORCE_DEMO || real.projects.length === 0 ? demoSnapshot() : { ...real, relay: relayStats() };
 }
 
 async function detail(id: string): Promise<ProjectDetail | null> {
@@ -103,6 +104,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/project') {
       const d = await detail(url.searchParams.get('id') ?? '');
       return d ? json(res, 200, d) : json(res, 404, { error: 'unknown project' });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/delegations') {
+      const d = addDelegation(JSON.parse(await readBody(req, 16 * 1024)));
+      return d ? json(res, 201, { ok: true }) : json(res, 400, { error: 'expected a delegation object' });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/ask') {

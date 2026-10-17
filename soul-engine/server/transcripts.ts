@@ -427,6 +427,7 @@ export class TranscriptIndex {
         burnPerMin: Math.round((burn[28] + burn[29]) / 2),
       },
       burn,
+      relay: { countToday: 0, costToday: 0, savedToday: 0, recent: [] },
     };
   }
 

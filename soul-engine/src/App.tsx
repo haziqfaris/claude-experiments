@@ -7,7 +7,7 @@ import FocusPanel from './components/FocusPanel';
 import { SoulMood, Message, OrbitNode, ChatTurn } from './types';
 import { querySoulEngine, useProjectDetail, useSnapshot } from './services/soulService';
 import { fmtCost, fmtTokens } from './format';
-import { Activity, Coins, Flame, Radio } from 'lucide-react';
+import { Activity, ArrowLeftRight, Coins, Flame, Radio } from 'lucide-react';
 
 const App: React.FC = () => {
   const { snapshot, link } = useSnapshot();
@@ -138,6 +138,7 @@ const App: React.FC = () => {
           <MetricCard label="EST. COST" value={fmtCost(totals?.costToday)} icon={<Coins size={14}/>} />
           <MetricCard label="LIVE" value={totals ? `${totals.liveSessions}/${totals.sessions}` : '—'} icon={<Radio size={14}/>} className="hidden sm:flex" />
           <MetricCard label="FLUX/MIN" value={totals ? fmtTokens(totals.burnPerMin) : '—'} icon={<Flame size={14}/>} className="hidden md:flex" />
+          <MetricCard label="SAVED" value={snapshot ? fmtCost(snapshot.relay.savedToday) : '—'} icon={<ArrowLeftRight size={14}/>} className="hidden lg:flex" />
         </div>
       </div>
 

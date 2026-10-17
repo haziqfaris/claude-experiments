@@ -40,6 +40,10 @@ function overview(snap: Snapshot): string {
     `Now: ${new Date(now).toString()}`,
     `Data source: ${snap.source === 'demo' ? 'DEMO DATA (simulated projects)' : `Claude Code transcripts in ${snap.root}`}`,
     `Totals today: ${fmtTokens(t.tokensToday)} tokens (${fmtTokens(t.outputToday)} output), est. cost ${fmtCost(t.costToday)}, ${t.liveSessions} live session(s), ${t.sessions} session(s) across ${t.projects} project(s), burn ${fmtTokens(t.burnPerMin)} tokens/min.`,
+    `Delegated to cheaper models today (soul-relay): ${snap.relay.countToday} task(s), spent ${fmtCost(snap.relay.costToday)}, saved about ${fmtCost(snap.relay.savedToday)} vs the main model.`,
+    ...snap.relay.recent.slice(0, 5).map(
+      (d) => `  - ${ago(d.at, now)}: ${path.basename(d.cwd) || '?'} -> ${d.target} (${d.model}, ${d.route}): "${d.task}" saved ${fmtCost(d.saved)}`,
+    ),
     '',
     'All projects (most recent first):',
     '| project | status | branch | last activity | sessions (live) | tokens today | cost today | cost all-time | models | context % (live) | last prompt |',

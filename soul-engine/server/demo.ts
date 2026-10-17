@@ -1,6 +1,7 @@
 // Simulated projects for when there are no transcripts yet (or SOUL_DEMO=1),
 // so the interface can be explored before Claude Code has run on this machine.
-import type { ProjectDetail, ProjectSnapshot, SessionDetail, Snapshot } from '../src/types';
+import type { Delegation, ProjectDetail, ProjectSnapshot, SessionDetail, Snapshot } from '../src/types';
+import { relayStats } from './relay';
 
 interface DemoProject {
   name: string;
@@ -123,6 +124,28 @@ function project(d: DemoProject, i: number, now: number): ProjectSnapshot {
   };
 }
 
+function demoDelegations(now: number): Delegation[] {
+  const rows: [string, Delegation['route'], string, string, string, number, number][] = [
+    ['payments-api', 'model', 'haiku', 'claude-haiku-5-5', 'Draft the v2.3 changelog from 14 commits', 9_400, 0.034],
+    ['payments-api', 'subagent', 'haiku', 'claude-haiku-5-5', 'Find every caller of chargeCard()', 41_000, 0.11],
+    ['reka-soul-engine', 'worker', 'haiku-1', 'claude-haiku-5-5', 'Rename hudColor to accent across src/', 63_000, 0.17],
+    ['handbook', 'model', 'sonnet', 'claude-sonnet-5-5', 'Summarize the onboarding chapter', 12_000, 0.02],
+  ];
+  return rows.map(([name, route, target, model, task, tokens, saved], i) => ({
+    at: now - (i + 1) * 9 * 60_000,
+    sessionId: `demo-${i}`,
+    cwd: DEMO.find((d) => d.name === name)?.path ?? '',
+    mainModel: 'claude-opus-5-5',
+    route,
+    target,
+    model,
+    task,
+    tokens,
+    cost: tokens * (model.includes('haiku') ? 0.0000002 : 0.000002),
+    saved,
+  }));
+}
+
 export function demoSnapshot(): Snapshot {
   const now = Date.now();
   const projects = DEMO.map((d, i) => project(d, i, now));
@@ -144,6 +167,7 @@ export function demoSnapshot(): Snapshot {
       burnPerMin: burn[29],
     },
     burn,
+    relay: relayStats(now, demoDelegations(now)),
   };
 }
 
