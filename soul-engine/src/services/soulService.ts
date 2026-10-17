@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AskEvent, AskRequest, Inventory, ProjectDetail, Snapshot } from '../types';
+import type { AskEvent, AskRequest, FlowGraph, Inventory, ProjectDetail, Snapshot } from '../types';
 
 export type LinkState = 'linking' | 'online' | 'lost';
 
@@ -100,4 +100,22 @@ export function useInventory(every = 15000): Inventory | null {
     return () => { cancelled = true; clearInterval(t); };
   }, [every]);
   return inv;
+}
+
+/** Relay: live chats, their plans and hand-offs, and routing suggestions. Refreshed every 4 seconds. */
+export function useFlow(every = 4000): FlowGraph | null {
+  const [flow, setFlow] = useState<FlowGraph | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch('/api/flow');
+        if (res.ok && !cancelled) setFlow((await res.json()) as FlowGraph);
+      } catch { /* hub restarting */ }
+    };
+    load();
+    const t = setInterval(load, every);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [every]);
+  return flow;
 }

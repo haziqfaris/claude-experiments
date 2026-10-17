@@ -45,6 +45,8 @@ The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a ch
 
 `GET /api/flow` reads every chat from the last 24 hours from its transcript: its model, what it is doing now, its latest plan (plan mode or a to-do list), and every hand-off it made (sub-agents, `delegate` calls, workflows) with the model, cost and whether it returned. For each plan it suggests a model and a chat per step, using rules in `server/routes.ts`. It also flags read-only sub-agents run on Opus, long runs of mechanical tool calls, chats with a nearly full context, and two chats working in one folder. Suggestions only; nothing is sent.
 
+Open it in the dashboard with the **RELAY** button (`#/relay`, or `#/relay/<project>` from a project soul). Chats are on the left. The selected chat's work is laid out in three lanes, Opus, Sonnet and Haiku: the chat itself with its to-do list, every hand-off (solid cards, breathing while they run, with cost and a return marker when they come back), and the soul's suggested routes for its plan (dashed cards, each with an instruction to copy). Suggestions across chats are on the right.
+
 The soul-relay plugin reads the same through `/api/soul/*`: `scope` (which project a folder is in), `inventory`, `plan`, `routes` and `overview`.
 
 ## Souls: one main soul, one per project

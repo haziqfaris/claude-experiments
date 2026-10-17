@@ -5,17 +5,19 @@ import Terminal from './components/Terminal';
 import ProjectsDashboard from './components/ProjectsDashboard';
 import { ActivityPanel, ProjectSessionsPanel, ProjectSidePanel } from './components/ProjectPanels';
 import InventoryPanel from './components/InventoryPanel';
+import RelayView from './components/RelayView';
 import { SoulMood, Message, OrbitNode, ChatTurn } from './types';
-import { querySoulEngine, useInventory, useProjectDetail, useSnapshot } from './services/soulService';
+import { querySoulEngine, useFlow, useInventory, useProjectDetail, useSnapshot } from './services/soulService';
 import { buildProjects, hueOf, MAIN_HUE, seedOf } from './projects';
 import { fmtCost, fmtTokens } from './format';
-import { Activity, ArrowLeftRight, Coins, Database, Flame, Radio } from 'lucide-react';
+import { Activity, ArrowLeftRight, Coins, Database, Flame, Network, Radio } from 'lucide-react';
 
-/** "#/" is the main soul; "#/p/<project>" is that project's soul. */
+/** "#/" is the main soul; "#/p/<project>" is that project's soul; "#/relay" (or "#/relay/<project>") is Relay. */
 const readScope = (): string | null => {
-  const m = /^#\/p\/(.+)$/.exec(window.location.hash);
+  const m = /^#\/(?:p|relay)\/(.+)$/.exec(window.location.hash);
   return m ? decodeURIComponent(m[1]) : null;
 };
+const readRelay = () => /^#\/relay(\/|$)/.test(window.location.hash);
 
 type InvView = { mode: 'inventory' | 'changes'; register: boolean } | null;
 
@@ -23,6 +25,7 @@ const App: React.FC = () => {
   const { snapshot, link } = useSnapshot();
   const inventory = useInventory();
   const [scope, setScope] = useState<string | null>(readScope);
+  const [relay, setRelay] = useState(readRelay);
   const [focusId, setFocusId] = useState<string | null>(null);
   // One conversation per soul: '' is the main soul.
   const [threads, setThreads] = useState<Record<string, Message[]>>({});
@@ -38,13 +41,17 @@ const App: React.FC = () => {
   const glowTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
-    const onHash = () => { setScope(readScope()); setInvView(null); };
+    const onHash = () => { setScope(readScope()); setRelay(readRelay()); setInvView(null); };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
   const openSoul = useCallback((name: string | null) => {
     window.location.hash = name ? `#/p/${encodeURIComponent(name)}` : '#/';
   }, []);
+  const openRelay = useCallback((name: string | null) => {
+    window.location.hash = name ? `#/relay/${encodeURIComponent(name)}` : '#/relay';
+  }, []);
+  const flow = useFlow(relay ? 4000 : 20000);
 
   const key = scope ?? '';
   const messages = threads[key] ?? [];
@@ -179,20 +186,22 @@ const App: React.FC = () => {
       <div className="absolute inset-0 bg-gradient-to-b from-reka-void via-transparent to-reka-void z-0 pointer-events-none" />
 
       {/* The soul: the main REKA soul, or the project's own */}
-      <SoulCore key={key} mood={mood} intensity={intensity} hue={hue} seed={seed} />
-      <DataOrbits nodes={nodes} hue={scope ? hue : undefined} selectedId={scope ? null : focusId}
-        onSelect={id => (scope ? setInvView({ mode: 'inventory', register: false }) : openSoul(id))} />
+      {!relay && <>
+        <SoulCore key={key} mood={mood} intensity={intensity} hue={hue} seed={seed} />
+        <DataOrbits nodes={nodes} hue={scope ? hue : undefined} selectedId={scope ? null : focusId}
+          onSelect={id => (scope ? setInvView({ mode: 'inventory', register: false }) : openSoul(id))} />
+      </>}
 
       {/* Top HUD */}
       <div className="absolute top-0 left-0 w-full p-6 flex flex-wrap justify-between items-start gap-4 z-40 pointer-events-none">
         <div className="glass-panel p-4 rounded-br-2xl border-l-4 pointer-events-auto" style={{ borderLeftColor: hue }}>
           <h1 className="text-2xl font-bold tracking-widest text-white neon-text">
-            {scope ? <button type="button" onClick={() => openSoul(null)} className="hover:opacity-80" title="Back to the main soul">REKA</button> : 'REKA'}
+            {scope || relay ? <button type="button" onClick={() => openSoul(null)} className="hover:opacity-80" title="Back to the main soul">REKA</button> : 'REKA'}
             {scope && <span className="text-lg" style={{ color: hue }}> / {scope}</span>}
             <span className="text-reka-cyan text-sm font-mono align-top opacity-80"> v2.6.0</span>
           </h1>
           <div className="text-xs font-mono mt-1 flex items-center gap-2" style={{ color: `${hue}99` }}>
-            {scope ? 'PROJECT SOUL' : 'MAIN SOUL // ALL PROJECTS'}
+            {relay ? 'RELAY // CHATS AND MODELS' : scope ? 'PROJECT SOUL' : 'MAIN SOUL // ALL PROJECTS'}
             <span className={`inline-flex items-center gap-1 ${link === 'online' ? 'text-reka-teal' : 'text-reka-gold'}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${link === 'online' ? 'bg-reka-teal animate-pulse' : 'bg-reka-gold'}`} />
               {linkLabel}
@@ -205,6 +214,12 @@ const App: React.FC = () => {
           <MetricCard label="EST. COST" value={m.cost} icon={<Coins size={14}/>} />
           <MetricCard label="LIVE" value={m.live} icon={<Radio size={14}/>} className="hidden sm:flex" />
           {!scope && <MetricCard label="FLUX/MIN" value={m.flux} icon={<Flame size={14}/>} className="hidden md:flex" />}
+          <button type="button" onClick={() => (relay ? (scope ? openSoul(scope) : openSoul(null)) : openRelay(scope))} aria-pressed={relay}
+            className={`glass-panel px-4 py-2 rounded flex flex-col items-end min-w-[100px] pointer-events-auto hover:border-reka-cyan/60 focus:outline-none focus:border-reka-cyan ${relay ? 'border-reka-gold/60' : ''}`}
+            aria-label={relay ? 'Back to the soul' : 'Open Relay: what each chat is doing and where its work goes'}>
+            <div className="flex items-center gap-2 text-reka-cyan/70 text-[10px] font-bold tracking-wider mb-1"><Network size={14}/> RELAY</div>
+            <div className="text-xl font-mono text-white neon-text">{relay ? 'BACK' : flow ? `${flow.totals.running} RUN` : 'OPEN'}</div>
+          </button>
           <button type="button" onClick={() => setInvView({ mode: 'inventory', register: false })} className="glass-panel px-4 py-2 rounded flex flex-col items-end min-w-[100px] pointer-events-auto hover:border-reka-cyan/60 focus:outline-none focus:border-reka-cyan" aria-label={scope ? `Open the inventory of ${scope}` : 'Open the inventory of all projects'}>
             <div className="flex items-center gap-2 text-reka-cyan/70 text-[10px] font-bold tracking-wider mb-1"><Database size={14}/> INVENTORY</div>
             <div className="text-xl font-mono text-white neon-text">{scope ? 'PROJECT' : 'ALL'}</div>
@@ -213,7 +228,9 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {scope ? (
+      {relay ? (
+        <RelayView flow={flow} projects={dash} project={scope} onBack={() => openSoul(scope)} />
+      ) : scope ? (
         current ? (
           <>
             <ProjectSidePanel project={current} onBack={() => openSoul(null)}
@@ -238,7 +255,7 @@ const App: React.FC = () => {
         onClose={() => setInvView(null)} onAsk={q => handleSendMessage(q)} />
 
       {/* Bottom interface: talks to the soul on screen */}
-      <Terminal
+      {!relay && <Terminal
         messages={messages}
         onSendMessage={handleSendMessage}
         isProcessing={isProcessing}
@@ -250,7 +267,7 @@ const App: React.FC = () => {
         scope={scope}
         hue={hue}
         askMode={askMode}
-      />
+      />}
 
     </div>
   );

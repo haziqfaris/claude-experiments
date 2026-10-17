@@ -79,3 +79,11 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Relay: work that is running breathes */
+@media (prefers-reduced-motion: no-preference) {
+  .relay-run { animation: relay-run 1.6s ease-in-out infinite; }
+}
+@keyframes relay-run {
+  50% { opacity: 0.7; }
+}
