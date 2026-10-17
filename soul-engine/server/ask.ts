@@ -29,7 +29,12 @@ How to answer:
 - Keep answers under 120 words unless the user asks for more, or asks for a list, a document or an inventory. Plain text; short "-" lists are fine; no markdown headings or tables.`;
 
 let client: Anthropic | null = null;
+/** The dashboard's ask box calls the API only when SOUL_ASK_API=on (the community edition). Otherwise it answers
+ *  offline, and you ask the soul inside Claude Code with /soul, which runs on your subscription. */
+export const askUsesApi = () => process.env.SOUL_ASK_API === 'on';
+
 function getClient(): Anthropic | null {
+  if (!askUsesApi()) return null;
   if (client) return client;
   try {
     client = new Anthropic();

@@ -34,6 +34,19 @@ The hub (`server/`) reads Claude Code's own session transcripts in `~/.claude/pr
 
 The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a cheaper model to `POST /api/delegations`. The dashboard then shows the total saved today in the top bar, the latest hand-offs in the Relay box, and the Soul Engine can answer questions about them. The hub keeps the last 300 reports in memory, so they reset when it restarts.
 
+## Personal and community editions
+
+- **Personal (default): subscription only.** Nothing in the hub calls the Anthropic API. Ask the soul inside Claude Code with `/soul` or in plain words; the soul-relay plugin's `soul_*` tools fetch from this hub, and the chat's own model answers on your subscription. The dashboard's ask box answers offline from the inventory and stats. An `ANTHROPIC_API_KEY` elsewhere on your machine is ignored.
+- **Community (opt-in): API.** Set `SOUL_ASK_API=on` and `ANTHROPIC_API_KEY` in `.env`, and the dashboard's ask box answers through the API with its own read-only tools (billed per token). This is for people who run the dashboard without Claude Code.
+
+`GET /api/config` reports which one is active.
+
+## Relay: what each chat is doing
+
+`GET /api/flow` reads every chat from the last 24 hours from its transcript: its model, what it is doing now, its latest plan (plan mode or a to-do list), and every hand-off it made (sub-agents, `delegate` calls, workflows) with the model, cost and whether it returned. For each plan it suggests a model and a chat per step, using rules in `server/routes.ts`. It also flags read-only sub-agents run on Opus, long runs of mechanical tool calls, chats with a nearly full context, and two chats working in one folder. Suggestions only; nothing is sent.
+
+The soul-relay plugin reads the same through `/api/soul/*`: `scope` (which project a folder is in), `inventory`, `plan`, `routes` and `overview`.
+
 ## Souls: one main soul, one per project
 
 - **Main soul** (`#/`, the landing page): answers across every project. Left, every project as a card (grouped by kind, with repos, live sessions, tokens and cost, key and API counts); right, the most recent activity. Projects orbit the core; click one to open its soul.
@@ -43,7 +56,7 @@ The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a ch
 
 ## Asking questions
 
-`POST /api/ask` picks the projects your question names, or the focused project, or the most recently active ones. It builds a context block from the stats table, recent prompts and replies, files touched, git state and the first part of `CLAUDE.md`/`README.md`, then streams Claude's answer back.
+This is the community edition's ask box (`SOUL_ASK_API=on`); in the personal edition it answers offline. `POST /api/ask` picks the projects your question names, or the focused project, or the most recently active ones. It builds a context block from the stats table, recent prompts and replies, files touched, git state and the first part of `CLAUDE.md`/`README.md`, then streams Claude's answer back.
 
 - Model: `claude-opus-5-5` at `low` effort, with server-side refusal fallback turned on. Override with `SOUL_MODEL` and `SOUL_EFFORT`.
 - **Privacy:** asking a question sends that context, including excerpts of your recent prompts and replies, to the Claude API. Stats on their own never leave your machine. The hub listens on `127.0.0.1` only.
@@ -71,7 +84,7 @@ Every fact shows the file and line it came from. Ask the core in plain words ("w
 
 ### What the core can do with Claude credentials
 
-With `ANTHROPIC_API_KEY` set (or an `ant auth login` profile), the terminal answers with Claude and can use **read-only tools** when the context is not enough. It shows each step under the answer (⚙ read angka/wrangler.jsonc):
+With `SOUL_ASK_API=on` and `ANTHROPIC_API_KEY` set, the terminal answers with Claude and can use **read-only tools** when the context is not enough. It shows each step under the answer (⚙ read angka/wrangler.jsonc):
 
 | Tool | Does |
 | --- | --- |

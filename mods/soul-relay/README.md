@@ -18,6 +18,22 @@ Commands:
 
 The status line shows something like `⇄ 3 delegated · saved ≈ $0.42`.
 
+## The soul: ask about your projects inside Claude Code
+
+When the Soul Engine hub is running (see [soul-engine](../../soul-engine/README.md)), every chat gets the soul of the project it is in. The project comes from `projects.local.json`, matched by the chat's folder. Answers run on the chat's own model, so they use your Claude subscription and no API credits. The hub does its part locally, from your transcripts and repos.
+
+| You type or ask | What happens |
+| --- | --- |
+| `/soul` | Says which project's soul this chat talks to, and what every live chat is doing |
+| `/soul <question>` | Hands this project's inventory to the chat, which answers here |
+| "Which API keys does this project use?" | Claude calls `soul_inventory` (keys by name and the API each calls, never secret values) |
+| "What changed this week?", "Draft the Access Register", "What breaks if I rotate RESEND_API_KEY?" | `soul_changes`, `soul_access_register`, `soul_rotation_checklist` |
+| "What are my other chats doing?" | `soul_overview` |
+| The chat writes a plan (plan mode or a to-do list) | The soul suggests a model and a chat for each step, shown in the status line and a toast |
+| `/soul-routes` | Shows those suggestions, with an instruction to paste for each step |
+
+Routing is show and suggest: nothing is sent to another chat or model unless you, or Claude at your request, act on it.
+
 ## Run it, step by step
 
 You need Claude Code 2.1.302 or newer (mods are an early-access feature), git, and, for the dashboard, Node.js 20 or newer.

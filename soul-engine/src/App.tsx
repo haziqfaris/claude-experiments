@@ -31,6 +31,10 @@ const App: React.FC = () => {
   const [afterglow, setAfterglow] = useState(false);
   const [invView, setInvView] = useState<InvView>(null);
   const [coreSpend, setCoreSpend] = useState(0);
+  const [askMode, setAskMode] = useState<'api' | 'subscription'>('subscription');
+  useEffect(() => {
+    fetch('/api/config').then(r => r.json()).then((c: { ask?: 'api' | 'subscription' }) => setAskMode(c.ask === 'api' ? 'api' : 'subscription')).catch(() => {});
+  }, []);
   const glowTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -245,6 +249,7 @@ const App: React.FC = () => {
         coreSpend={coreSpend}
         scope={scope}
         hue={hue}
+        askMode={askMode}
       />
 
     </div>

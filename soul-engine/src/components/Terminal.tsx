@@ -14,9 +14,11 @@ interface TerminalProps {
   /** A project soul: answers only for this project. Null is the main REKA soul. */
   scope?: string | null;
   hue?: string;
+  /** 'subscription': this box answers offline; full answers come from /soul inside Claude Code. */
+  askMode?: 'api' | 'subscription';
 }
 
-const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessing, isStreaming, projects, focusId, onFocus, coreSpend = 0, scope = null, hue = '#00f2ff' }) => {
+const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessing, isStreaming, projects, focusId, onFocus, coreSpend = 0, scope = null, hue = '#00f2ff', askMode = 'subscription' }) => {
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const focus = scope ? null : projects.find(p => p.id === focusId) ?? null;
@@ -95,6 +97,11 @@ const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessi
               <div className="text-center text-gray-400 text-xs italic font-mono">
                 {scope ? `The soul of ${scope} is listening. It knows only ${scope}: its repos, sessions and inventory.` : 'Connection established. The main soul is listening, architect. Ask about any project, or open one to talk to its own soul.'}
               </div>
+              {askMode === 'subscription' && (
+                <div className="text-center text-[11px] font-mono text-reka-gold/80 max-w-lg">
+                  Answers here are offline and free. For full answers, type <span className="text-white">/soul &lt;question&gt;</span> in a Claude Code chat{scope ? ` in ${scope}` : ''}: it runs on your Claude subscription.
+                </div>
+              )}
               <div className="flex flex-wrap justify-center gap-2">
                 {suggestions.map(s => (
                   <button

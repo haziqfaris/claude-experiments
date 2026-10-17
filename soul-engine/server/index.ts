@@ -6,7 +6,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AskEvent, AskRequest, ProjectDetail, Snapshot } from '../src/types';
-import { ask, soulModel } from './ask';
+import { ask, askUsesApi, soulModel } from './ask';
 import { demoDetail, demoSnapshot } from './demo';
 import { gitInfo, projectNotes } from './git';
 import { addDelegation, relayStats } from './relay';
@@ -15,6 +15,41 @@ import { InventoryIndex, searchInventory } from './inventory';
 import { accessRegisterDraft, rotationChecklist } from './docs';
 import { changeReportMarkdown, diffInventories, maybeWriteWeeklyReport, saveSnapshot, snapshotBefore } from './history';
 import { scopeFor, scopedInventory } from './tools';
+import { inventoryContext } from './inventory';
+import { routePlan, routesMarkdown, suggestRoutes } from './routes';
+import type { FlowGraph, Inventory } from '../src/types';
+
+/** The project (a group in projects.local.json) a folder belongs to, by repo path. */
+function projectOf(inv: Inventory, cwd: string): { name: string; repos: string[] } | null {
+  const n = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const c = n(cwd);
+  const hit = inv.projects.filter((p) => [p.path, ...(p.alsoAt ?? [])].some((x) => c === n(x) || c.startsWith(n(x) + '/')))
+    .sort((a, b) => b.path.length - a.path.length)[0];
+  if (!hit) return null;
+  const g = inv.groups.find((x) => x.repos.includes(hit.id));
+  return g ? { name: g.name, repos: g.repos.map((id) => inv.projects.find((p) => p.id === id)?.name ?? id) } : { name: hit.name, repos: [hit.name] };
+}
+
+function flowGraph(): FlowGraph {
+  const chats = index.flow();
+  const inv = inventory.get();
+  const planRoutes: FlowGraph['planRoutes'] = {};
+  for (const c of chats) if (c.plan) planRoutes[c.id] = routePlan(c.plan.steps, projectOf(inv, c.cwd)?.name ?? null);
+  const suggestions = suggestRoutes(chats);
+  const relay = relayStats();
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const agents = chats.flatMap((c) => c.agents);
+  return {
+    generatedAt: Date.now(), chats, planRoutes, suggestions, delegations: relay.recent,
+    totals: {
+      liveChats: chats.filter((c) => c.status !== 'idle').length,
+      running: agents.filter((a) => a.status === 'running').length,
+      returnedToday: agents.filter((a) => a.status === 'returned' && (a.endedAt ?? 0) >= start.getTime()).length,
+      handoffCostToday: agents.filter((a) => a.startedAt >= start.getTime()).reduce((n, a) => n + (a.cost ?? 0), 0) + relay.costToday,
+      possibleSaving: suggestions.reduce((n, s) => n + (s.saving ?? 0), 0),
+    },
+  };
+}
 
 const PORT = Number(process.env.SOUL_PORT ?? 7777);
 const HOST = process.env.SOUL_HOST ?? '127.0.0.1';
@@ -155,6 +190,53 @@ const server = http.createServer(async (req, res) => {
       return json(res, 202, { scanning: true });
     }
 
+    // ---- Relay and the soul's tools (called by the soul-relay plugin inside Claude Code) ----
+    if (req.method === 'GET' && url.pathname === '/api/flow') return json(res, 200, flowGraph());
+    if (req.method === 'GET' && url.pathname === '/api/config') return json(res, 200, { ask: askUsesApi() ? 'api' : 'subscription' });
+
+    if (req.method === 'GET' && url.pathname === '/api/soul/scope') {
+      return json(res, 200, { project: projectOf(inventory.get(), url.searchParams.get('cwd') ?? '') });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/soul/inventory') {
+      const project = url.searchParams.get('project');
+      const q = url.searchParams.get('q');
+      const inv = scopedInventory(inventory.get(), scopeFor(inventory.get(), project));
+      if (q) {
+        const hits = searchInventory(inv, q, 80);
+        return json(res, 200, { text: hits.length ? hits.map((h) => `${h.project} · ${h.fact.label}: ${h.fact.value}${h.fact.evidence[0] ? ` (${h.fact.evidence.slice(0, 2).join(', ')})` : ''}`).join('\n') : `No inventory fact${project ? ` in ${project}` : ''} matches "${q}".` });
+      }
+      return json(res, 200, { text: inventoryContext(inv, project ? [project] : null, 30_000) || 'The inventory is empty or still scanning.' });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/soul/plan') {
+      const id = url.searchParams.get('session') ?? '';
+      const chat = index.flow(7 * 86_400_000).find((c) => c.id === id);
+      const project = chat ? projectOf(inventory.get(), chat.cwd)?.name ?? null : null;
+      const routes = chat?.plan ? routePlan(chat.plan.steps, project) : [];
+      return json(res, 200, { routes, text: routesMarkdown(routes, `Suggested routes for this chat's plan${project ? ` (${project})` : ''}`) });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/soul/routes') {
+      const body = JSON.parse(await readBody(req, 64 * 1024)) as { steps?: unknown; cwd?: unknown };
+      const steps = Array.isArray(body.steps) ? body.steps.filter((x): x is string => typeof x === 'string').slice(0, 30) : [];
+      const project = typeof body.cwd === 'string' ? projectOf(inventory.get(), body.cwd)?.name ?? null : null;
+      const routes = routePlan(steps, project);
+      return json(res, 200, { routes, text: routesMarkdown(routes, `Suggested routes${project ? ` (${project})` : ''}`) });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/soul/overview') {
+      const g = flowGraph();
+      const inv = inventory.get();
+      const lines = [`${g.totals.liveChats} live chats · ${g.totals.running} hand-offs running · ${g.totals.returnedToday} returned today`, ''];
+      for (const c of g.chats.filter((x) => x.status !== 'idle').slice(0, 10)) {
+        lines.push(`- ${projectOf(inv, c.cwd)?.name ?? c.folder} · ${c.model ?? '?'} · ${c.phase}${c.doing ? ` · ${c.doing.tool}${c.doing.detail ? ` (${c.doing.detail})` : ''}` : ''}: ${c.title.slice(0, 90)}`);
+        for (const a of c.agents.filter((x) => x.status === 'running')) lines.push(`  ↳ ${a.label} · ${a.model ?? a.agentType ?? a.kind} · running`);
+      }
+      if (g.suggestions.length) lines.push('', 'Suggestions:', ...g.suggestions.map((s) => `- ${s.title}: ${s.why}`));
+      return json(res, 200, { text: lines.join('\n') });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/delegations') {
       const d = addDelegation(JSON.parse(await readBody(req, 16 * 1024)));
       return d ? json(res, 201, { ok: true }) : json(res, 400, { error: 'expected a delegation object' });
@@ -202,5 +284,5 @@ setInterval(async () => {
 
 server.listen(PORT, HOST, () => {
   console.log(`REKA Soul Engine hub on http://${HOST}:${PORT}`);
-  console.log(`  source: ${snap.source === 'demo' ? 'demo data' : index.root} · ${snap.projects.length} project(s) · model ${soulModel}`);
+  console.log(`  source: ${snap.source === 'demo' ? 'demo data' : index.root} · ${snap.projects.length} project(s) · ask box: ${askUsesApi() ? `API (${soulModel})` : "offline; ask in Claude Code with /soul"}`);
 });

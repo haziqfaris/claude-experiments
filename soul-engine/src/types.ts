@@ -253,9 +253,22 @@ export interface FlowSuggestion {
   instruction: string;
 }
 
+export type RouteTarget = 'this chat' | 'haiku delegate' | 'haiku worker' | 'sonnet worker' | 'second chat';
+
+/** One plan step and where the soul suggests it runs. */
+export interface StepRoute {
+  step: string;
+  model: 'opus' | 'sonnet' | 'haiku';
+  where: RouteTarget;
+  why: string;
+  instruction: string | null;
+}
+
 export interface FlowGraph {
   generatedAt: number;
   chats: FlowChat[];
+  /** Suggested routes for each chat's latest plan, by chat id. */
+  planRoutes: Record<string, StepRoute[]>;
   suggestions: FlowSuggestion[];
   delegations: Delegation[];
   totals: { liveChats: number; running: number; returnedToday: number; handoffCostToday: number; possibleSaving: number };

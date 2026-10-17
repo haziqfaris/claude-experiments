@@ -9,11 +9,11 @@ const USAGE = {
 }
 
 // Stand-ins for the engine's own answers to what the mod registers and draws.
-function engineBottom(on: On) {
+function engineBottom(on: On, { status = true } = {}) {
   on('tool.register', () => ({ value: { name: 'mcp__soul-relay__delegate' } }) as never)
   on('agent.register', ($, e) => ({ value: { agent: `soul-relay:${e.name}` } }) as never)
   on('command.register', () => ({ value: {} }) as never)
-  on('ui.status', () => ({ value: undefined }))
+  if (status) on('ui.status', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
   on('session.receive', ($, e) => ({ text: e.text }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
@@ -35,7 +35,8 @@ describe('soul-relay', () => {
       return { value: { isAnswered: true, text: 'Three bullet summary.', usage: USAGE } }
     })
     on('http.fetch', ($, e) => {
-      posted.push(String(e.init?.body ?? ''))
+      // Only delegation reports; the soul also looks up this chat's project.
+      if (String(e.url).endsWith('/api/delegations')) posted.push(String(e.init?.body ?? ''))
       return { value: { status: 200, ok: true, headers: {}, text: '{}' } }
     })
 
@@ -144,5 +145,81 @@ describe('soul-relay', () => {
     expect(sends.map(s => s.to)).toEqual(['uds:/tmp/a.sock', 'uds:/tmp/b.sock'])
     expect(sends[0]!.text).toContain('in=1200')
     expect(sends[1]!.text).toContain('in=0 out=0')
+  })
+})
+
+// A stand-in for the Soul Engine hub: answers by path, records what was asked.
+function fakeHub(on: On, asked: string[]) {
+  on('http.fetch', ($, e) => {
+    const url = String(e.url)
+    asked.push(`${e.init?.method ?? 'GET'} ${url.replace('http://127.0.0.1:7777', '')}${e.init?.body ? ` ${e.init.body}` : ''}`)
+    let body: unknown = { ok: true }
+    if (url.includes('/api/soul/scope')) body = { project: { name: 'Payments', repos: ['payments-api', 'payments-web'] } }
+    else if (url.includes('/api/soul/inventory')) body = { text: 'Payments / payments-api · Resend (e-mail API): RESEND_API_KEY (src/mail.ts:4)' }
+    else if (url.includes('/api/soul/routes')) {
+      const steps = (JSON.parse(String(e.init?.body)) as { steps: string[] }).steps
+      body = {
+        routes: steps.map(s => ({ step: s, model: /find/i.test(s) ? 'haiku' : 'opus', where: /find/i.test(s) ? 'haiku worker' : 'this chat', why: 'rule', instruction: null })),
+        text: `Suggested routes (Payments)\n${steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`,
+      }
+    }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(body) } }
+  })
+}
+
+describe('the soul', () => {
+  test('soul tools answer for this chat\'s project from the hub', async ($, on) => {
+    const asked: string[] = []
+    mock.store(on)
+    mock.clock(on)
+    engineBottom(on)
+    fakeHub(on, asked)
+    on('session.model', () => ({ value: 'claude-opus-5-5' }))
+    on('session.id', () => ({ value: 'boss-session' }))
+    on('session.cwd', () => ({ value: '/work/payments-api' }))
+    on('session.start', () => ({ cwd: '/work/payments-api' }))
+
+    await $.session.start({ source: 'startup', cwd: '/work/payments-api', surface: null } as never)
+    const ran = await $.tool.call({ tool: 'mcp__soul-relay__soul_inventory', query: 'resend' } as never)
+
+    expect(String(ran.result)).toContain('RESEND_API_KEY')
+    expect(asked).toContain('GET /api/soul/scope?cwd=%2Fwork%2Fpayments-api')
+    expect(asked).toContain('GET /api/soul/inventory?project=Payments&q=resend')
+  })
+
+  test('a plan the chat writes gets suggested routes, and nothing is sent', async ($, on) => {
+    const asked: string[] = []
+    const statuses: (string | undefined)[] = []
+    mock.store(on)
+    mock.clock(on)
+    engineBottom(on, { status: false })
+    fakeHub(on, asked)
+    on('ui.status', ($, e) => {
+      statuses.push((e as unknown as { text?: string }).text)
+      return { value: undefined }
+    })
+    on('tool.call', () => ({ result: 'Todos updated' }))
+    on('session.model', () => ({ value: 'claude-opus-5-5' }))
+    on('session.id', () => ({ value: 'boss-session' }))
+    on('session.cwd', () => ({ value: '/work/payments-api' }))
+    on('session.start', () => ({ cwd: '/work/payments-api' }))
+
+    await $.session.start({ source: 'startup', cwd: '/work/payments-api', surface: null } as never)
+    await $.tool.call({
+      tool: 'TodoWrite',
+      todos: [
+        { content: 'Find every place invoices are built', status: 'pending' },
+        { content: 'Design the export format', status: 'pending' },
+      ],
+    } as never)
+    await $.turn.complete({ answer: 'Plan ready.', durationMs: 900, isAborted: false, turnId: 't1', reason: 'answer', usage: { ...USAGE, model: 'claude-opus-5-5' } } as never)
+    const shown = await $.command.run({ command: 'soul-routes', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as never)
+
+    const posts = asked.filter(a => a.startsWith('POST /api/soul/routes'))
+    expect(posts).toHaveLength(1)
+    expect(posts[0]).toContain('Find every place invoices are built')
+    expect(String((shown as { text?: string }).text)).toContain('Suggested routes (Payments)')
+    expect(statuses.some(s => s?.includes('1/2 steps fit cheaper models'))).toBe(true)
+    expect(asked.some(a => a.includes('/api/delegations'))).toBe(false)
   })
 })
