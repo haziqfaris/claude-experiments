@@ -11,6 +11,8 @@ export interface Message {
   content: string;
   timestamp: number;
   meta?: string;
+  /** Tools the core used for this answer, in order. */
+  tools?: string[];
 }
 
 export interface OrbitNode {
@@ -140,7 +142,8 @@ export interface AskRequest {
 export type AskEvent =
   | { type: 'meta'; projects: string[]; model: string; offline: boolean }
   | { type: 'delta'; text: string }
-  | { type: 'done'; usage?: { input: number; output: number } }
+  | { type: 'tool'; label: string }
+  | { type: 'done'; usage?: { input: number; output: number; cost?: number | null; calls?: number } }
   | { type: 'error'; message: string };
 
 // ---- Project inventory (server/inventory.ts) ----

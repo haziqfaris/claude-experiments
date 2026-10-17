@@ -12,6 +12,8 @@ import { gitInfo, projectNotes } from './git';
 import { addDelegation, relayStats } from './relay';
 import { TranscriptIndex } from './transcripts';
 import { InventoryIndex, searchInventory } from './inventory';
+import { accessRegisterDraft, rotationChecklist } from './docs';
+import { changeReportMarkdown, diffInventories, maybeWriteWeeklyReport, saveSnapshot, snapshotBefore } from './history';
 
 const PORT = Number(process.env.SOUL_PORT ?? 7777);
 const HOST = process.env.SOUL_HOST ?? '127.0.0.1';
@@ -20,6 +22,13 @@ const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist
 
 const index = new TranscriptIndex();
 const inventory = new InventoryIndex();
+inventory.onScanned = (inv) => {
+  saveSnapshot(inv)
+    .then(() => maybeWriteWeeklyReport(inv))
+    .then((file) => { if (file) console.log(`weekly inventory change report: ${file}`); })
+    .catch((err) => console.error('snapshot not saved:', err));
+};
+const CONTINUITY = process.env.SOUL_CONTINUITY_CHECK ?? null;
 const projectPaths = () => (snap.source === 'demo' ? [] : snap.projects.map((p) => p.path));
 function rescan() {
   inventory.scan(projectPaths()).catch((err) => console.error('inventory scan failed:', err));
@@ -119,6 +128,24 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, q ? { scannedAt: inventory.get().scannedAt, hits: searchInventory(inventory.get(), q, 200) } : inventory.get());
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/inventory/changes') {
+      const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 7));
+      const report = diffInventories(await snapshotBefore(days), inventory.get());
+      return json(res, 200, { report, markdown: changeReportMarkdown(report) });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/docs/access-register') {
+      const project = url.searchParams.get('project') ?? '';
+      const markdown = accessRegisterDraft(inventory.get(), project);
+      return markdown ? json(res, 200, { title: `${project}: Access Register draft`, file: `${project.replace(/[^A-Za-z0-9]+/g, '-')}-access-register.md`, markdown }) : json(res, 404, { error: 'unknown project' });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/docs/rotation') {
+      const key = url.searchParams.get('key') ?? '';
+      const markdown = rotationChecklist(inventory.get(), key);
+      return markdown ? json(res, 200, { title: `Rotate ${key}`, file: `rotate-${key.toLowerCase()}.md`, markdown }) : json(res, 404, { error: 'no repo uses that key' });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/inventory/rescan') {
       rescan();
       return json(res, 202, { scanning: true });
@@ -140,7 +167,7 @@ const server = http.createServer(async (req, res) => {
       const send = (e: AskEvent) => {
         if (!res.writableEnded) res.write(`data: ${JSON.stringify(e)}\n\n`);
       };
-      await ask(body, snap, detail, send, abort.signal, inventory.get());
+      await ask(body, snap, detail, send, abort.signal, inventory.get(), inventory, CONTINUITY);
       return res.end();
     }
 

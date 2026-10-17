@@ -62,6 +62,29 @@ The inventory is organised **by project, then repo**: list your projects and the
 
 Every fact shows the file and line it came from. Ask the core in plain words ("which projects send e-mail from noreply@…?", "where is the Stripe key used?") and it answers from the inventory; without Claude credentials it answers with the closest matches.
 
+### What the core can do with Claude credentials
+
+With `ANTHROPIC_API_KEY` set (or an `ant auth login` profile), the terminal answers with Claude and can use **read-only tools** when the context is not enough. It shows each step under the answer (⚙ read angka/wrangler.jsonc):
+
+| Tool | Does |
+| --- | --- |
+| `search_inventory`, `project_inventory` | Search the inventory, or open one project's or repo's |
+| `list_files`, `search_code`, `read_file` | Look inside a repo (git-tracked files only; `.env` files refused; paths outside the repo refused; secret-looking values hidden) |
+| `rescan_repo` | Re-read one repo when it changed |
+| `continuity_check` | Run the REKA continuity check (the repo's own `tools/reka-handover-kit` copy, else `SOUL_CONTINUITY_CHECK`) |
+| `change_report` | What changed over the last N days |
+| `access_register_draft`, `rotation_checklist` | The two documents below |
+
+Every answer shows its cost underneath (calls, tokens in and out, estimated dollars from `server/pricing.ts`), and the terminal header keeps a running total for the window.
+
+### One-click documents and the change report
+
+- **Access Register draft** (button on each project): services, keys by name with their API, domains, addresses found, scheduled jobs, in the shape of the REKA S13 register, with `[CONFIRM]` where a person must fill in.
+- **Rotation checklist** (button on each API key): every repo, CI secret, host and file to update when that key is rotated, in order.
+- **Changes** (panel header): what was added or removed in keys, APIs, services, hosting, domains, addresses, sign-in and jobs over 7, 30 or 90 days. A snapshot is saved each day the hub runs, and once a week a Markdown report is written next to them (`SOUL_DATA_DIR`, default `~/.claude/soul-engine/inventory-history`), never into this repo.
+
+These work without Claude credentials; "Ask the core to check it" hands the draft to Claude to verify with its tools.
+
 **Safety.** The scan is read-only and runs on your machine. It never opens `.env` files (only `.env.example` and similar, names only), and anything that looks like a password, key or token in a line is replaced with `[hidden]`. Addresses on your own domains (`SOUL_OWN_DOMAINS`) and role addresses (`noreply@`, `support@`) are shown in full; personal and client addresses are masked (`a•••@client.com`). Copies and worktrees of one repo are shown as one project. The inventory is kept in memory, rebuilt every 15 minutes or on **Rescan**, and never written into this repo. Asking a question sends the relevant part to the Claude API, like any other question.
 
 ## Config
@@ -77,11 +100,13 @@ Every fact shows the file and line it came from. Ask the core in plain words ("w
 | `SOUL_INVENTORY_ROOTS` | — | Folders whose sub-folders are projects to inventory, besides those Claude Code worked in (`;` or `,` separated) |
 | `SOUL_OWN_DOMAINS` | — | Your domains: addresses on them are shown in full |
 | `SOUL_INVENTORY_EXCLUDE` | — | Regular expression of folders to leave out |
+| `SOUL_CONTINUITY_CHECK` | — | Path to the REKA continuity check script for the `continuity_check` tool |
+| `SOUL_DATA_DIR` | `~/.claude/soul-engine/inventory-history` | Where daily snapshots and weekly reports are kept |
 
 ## Layout
 
 ```
-server/        hub: transcripts.ts (stats), git.ts, context.ts, ask.ts (Claude), inventory.ts (infra, keys, tools), demo.ts, index.ts (HTTP + SSE)
+server/        hub: transcripts.ts (stats), git.ts, context.ts, ask.ts (Claude + tool loop), tools.ts (read-only tools), inventory.ts (infra, keys, tools), docs.ts (register, rotation), history.ts (snapshots, changes), demo.ts, index.ts (HTTP + SSE)
 src/           UI: SoulCore (d3), DataOrbits, Terminal, ProjectsPanel, FocusPanel, InventoryPanel
 src/types.ts   types shared by both sides
 ```

@@ -10,9 +10,10 @@ interface TerminalProps {
   projects: ProjectSnapshot[];
   focusId: string | null;
   onFocus: (id: string | null) => void;
+  coreSpend?: number;
 }
 
-const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessing, isStreaming, projects, focusId, onFocus }) => {
+const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessing, isStreaming, projects, focusId, onFocus, coreSpend = 0 }) => {
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const focus = projects.find(p => p.id === focusId) ?? null;
@@ -50,6 +51,7 @@ const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessi
         <div className="flex flex-wrap items-center gap-2 text-reka-cyan border-b border-reka-cyan/20 pb-2">
           <TerminalIcon size={14} />
           <span className="text-xs font-mono tracking-widest uppercase">Direct Link // Soul Protocol</span>
+          {coreSpend > 0 && <span className="text-[10px] font-mono text-reka-gold/80" title="Estimated Claude API cost of questions asked in this window">core spend ~${coreSpend.toFixed(3)}</span>}
           <div className="ml-auto flex items-center gap-2">
             {focus && (
               <button
@@ -101,13 +103,20 @@ const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessi
             const streamingThis = isStreaming && i === messages.length - 1 && msg.role === 'system';
             return (
               <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                <div className={`max-w-[85%] p-2 rounded text-sm font-mono whitespace-pre-wrap break-words ${
-                  msg.role === 'user'
-                    ? 'bg-reka-cyan/10 text-reka-cyan border border-reka-cyan/30'
-                    : 'bg-reka-magenta/10 text-[#ff8cff] border border-reka-magenta/30'
-                } ${streamingThis ? 'caret' : ''}`}>
-                  {msg.content}
-                </div>
+                {(msg.content || streamingThis) && (
+                  <div className={`max-w-[85%] p-2 rounded text-sm font-mono whitespace-pre-wrap break-words ${
+                    msg.role === 'user'
+                      ? 'bg-reka-cyan/10 text-reka-cyan border border-reka-cyan/30'
+                      : 'bg-reka-magenta/10 text-[#ff8cff] border border-reka-magenta/30'
+                  } ${streamingThis ? 'caret' : ''}`}>
+                    {msg.content}
+                  </div>
+                )}
+                {msg.tools && msg.tools.length > 0 && (
+                  <div className="text-[10px] font-mono text-reka-cyan/70 mt-1 flex flex-col gap-0.5">
+                    {msg.tools.map((t, j) => <span key={j}>⚙ {t}</span>)}
+                  </div>
+                )}
                 {msg.meta && (
                   <div className="text-[10px] font-mono text-gray-400 mt-1 tracking-wider">{msg.meta}</div>
                 )}

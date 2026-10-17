@@ -18,6 +18,7 @@ const App: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [afterglow, setAfterglow] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [coreSpend, setCoreSpend] = useState(0);
   const glowTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const projects = snapshot?.projects ?? [];
@@ -97,9 +98,26 @@ const App: React.FC = () => {
         });
 
       let meta = '';
+      const steps: string[] = [];
+      const setSteps = () => setMessages(prev => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (started && last?.role === 'system') next[next.length - 1] = { ...last, tools: [...steps], meta };
+        else { started = true; next.push({ role: 'system', content: '', timestamp: Date.now(), meta, tools: [...steps] }); }
+        return next;
+      });
       try {
         await querySoulEngine({ question: text, focusId, history }, e => {
-          if (e.type === 'meta') {
+          if (e.type === 'tool') {
+            steps.push(e.label);
+            setSteps();
+          } else if (e.type === 'done' && e.usage) {
+            const u = e.usage;
+            const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+            meta = `${meta} · ${u.calls ?? 1} call${(u.calls ?? 1) === 1 ? '' : 's'} · ${k(u.input)} in / ${k(u.output)} out${u.cost != null ? ` · ~$${u.cost.toFixed(3)}` : ''}`;
+            if (u.cost) setCoreSpend(s => s + (u.cost ?? 0));
+            setSteps();
+          } else if (e.type === 'meta') {
             const about = e.projects.length ? `echoes from ${e.projects.join(', ')}` : 'echoes from all projects';
             meta = `↳ ${about} · ${e.offline ? 'offline' : e.model}`;
           } else if (e.type === 'delta') {
@@ -178,6 +196,7 @@ const App: React.FC = () => {
         projects={projects}
         focusId={focusId}
         onFocus={setFocusId}
+        coreSpend={coreSpend}
       />
 
     </div>

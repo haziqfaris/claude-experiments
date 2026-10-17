@@ -402,11 +402,26 @@ export class InventoryIndex {
       const ordered = [...groups.values()].filter((g) => g.repos.length || g.missing.length)
         .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.name.localeCompare(b.name));
       this.inv = { scannedAt: Date.now(), scanning: false, projects: merged.sort((a, b) => a.name.localeCompare(b.name)), groups: ordered };
+      this.onScanned?.(this.inv);
     } catch (err) {
       this.inv = { ...this.inv, scanning: false };
       throw err;
     }
   }
+
+  /** Re-reads one repo (by repo, folder or project name) and swaps it into the inventory. */
+  async rescanOne(name: string): Promise<ProjectInventory | null> {
+    const n = name.toLowerCase().trim();
+    const old = this.inv.projects.find((p) => p.name.toLowerCase() === n || path.basename(p.path).toLowerCase() === n) ?? this.inv.projects.find((p) => p.name.toLowerCase().includes(n));
+    if (!old) return null;
+    const fresh = await scanProject(old.path);
+    const merged: ProjectInventory = { ...fresh, project: old.project, kind: old.kind, ...(old.alsoAt ? { alsoAt: old.alsoAt } : {}) };
+    this.inv = { ...this.inv, projects: this.inv.projects.map((p) => (p.id === old.id ? merged : p)) };
+    return merged;
+  }
+
+  /** Called after every full scan (the hub saves the daily snapshot here). */
+  onScanned: ((inv: Inventory) => void) | null = null;
 
   stale(): boolean { return !this.inv.scanning && Date.now() - this.inv.scannedAt > RESCAN_MS; }
 }
