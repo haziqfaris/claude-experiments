@@ -209,8 +209,7 @@ function ingestLine(acc: FileAcc, line: string) {
           }
           // A plan: the steps of an ExitPlanMode plan, or of a to-do list.
           if (b.name === 'ExitPlanMode' && typeof b.input?.plan === 'string') {
-            const steps = String(b.input.plan).split('
-').map((l) => /^\s*(?:\d+[.)]|[-*])\s+(.+)/.exec(l)?.[1]).filter((x): x is string => !!x).map((x) => clip(x.replace(/\*\*/g, ''), 140));
+            const steps = String(b.input.plan).split('\n').map((l) => /^\s*(?:\d+[.)]|[-*])\s+(.+)/.exec(l)?.[1]).filter((x): x is string => !!x).map((x) => clip(x.replace(/\*\*/g, ''), 140));
             if (steps.length) acc.plan = { ts: at, steps: steps.slice(0, 20) };
           } else if (b.name === 'TodoWrite' && acc.todos.length) {
             acc.plan = { ts: at, steps: acc.todos.map((t) => t.content) };
