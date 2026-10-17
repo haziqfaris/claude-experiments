@@ -63,6 +63,8 @@ You need Claude Code 2.1.302 or newer (mods are an early-access feature), git, a
 
 6. **Stop a worker** with `/soul-worker off`, or just close that session. Workers that haven't been seen for 90 seconds drop off the list.
 
+Using several Claude desktop chats at once (an Opus chat plus Haiku worker chats)? See [DESKTOP.md](DESKTOP.md).
+
 ## How savings are counted
 
 For every hand-off, the mod takes the cheaper model's token usage and prices it twice: at the cheaper model's list price, and at your session's model's list price. The saving is the difference. This is an estimate: it assumes the main model would have used the same tokens. It ignores the tokens the main model spends writing the hand-off and reading the result back.

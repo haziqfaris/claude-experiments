@@ -61,8 +61,10 @@ const ALIASES: Record<string, string> = {
 
 const HEARTBEAT_MS = 20_000
 const STALE_MS = 90_000
-const TASK_RE = /^\[soul-relay task ([\w-]+) from (.+?) session=(\S+)\]/
-const RESULT_RE = /^\[soul-relay result ([\w-]+) from (.+?) model=(\S+) in=(\d+) out=(\d+) cr=(\d+) cw=(\d+)\]/
+// Deliveries arrive wrapped in a <cross-session-message from="..."> envelope, so match per line.
+const TASK_RE = /^\[soul-relay task ([\w-]+) from (.+?) session=(\S+)\]/m
+const FROM_RE = /<cross-session-message from="([^"]+)"/
+const RESULT_RE = /^\[soul-relay result ([\w-]+) from (.+?) model=(\S+) in=(\d+) out=(\d+) cr=(\d+) cw=(\d+)\]/m
 
 const CHEAP_SYSTEM = `You are a focused assistant doing one delegated sub-task for another AI agent. You have no tools and no other context than what you are given. Do exactly the task, completely, and reply with the result only: no preamble, no questions back. If something essential is missing, do your best and state the assumption in one line at the end.`
 
@@ -121,7 +123,8 @@ const S = {
   ledger: { count: 0, cheapCost: 0, saved: 0 } as Ledger,
   workerName: null as string | null,
   heartbeat: null as Timer | null,
-  currentTask: null as { id: string; replyTo: string; from: string } | null,
+  // Tasks this worker received that its next finished turn answers; several chats may send at once.
+  tasks: [] as { id: string; replyTo: string; replyAddress: string | null; from: string }[],
   pending: new Map<string, Pending>(),
 }
 
@@ -129,7 +132,7 @@ const ledgerKey = () => `ledger:${S.sessionId}`
 
 function showStatus($: Engine) {
   const parts: string[] = []
-  if (S.workerName) parts.push(`⇄ worker ${S.workerName}${S.currentTask ? ' · busy' : ''}`)
+  if (S.workerName) parts.push(`⇄ worker ${S.workerName}${S.tasks.length ? ' · busy' : ''}`)
   if (S.ledger.count) parts.push(`⇄ ${S.ledger.count} delegated · saved ≈ ${fmtUsd(S.ledger.saved)}`)
   if (S.pending.size) parts.push(`${S.pending.size} out`)
   $.ui.status(parts.length ? parts.join(' · ') : undefined)
@@ -253,7 +256,7 @@ async function becomeWorker($: Engine, wanted: string) {
   await saveWorker($, { name, busy: false })
   S.heartbeat?.cancel()
   S.heartbeat = $.clock.every(HEARTBEAT_MS, () => {
-    saveWorker($, { lastSeen: Date.now(), busy: S.currentTask != null }).catch(() => {})
+    saveWorker($, { lastSeen: Date.now(), busy: S.tasks.length > 0 }).catch(() => {})
   })
   showStatus($)
   return name
@@ -404,7 +407,7 @@ export const register: Register = (on, options) => {
       `Saved vs ${await $.session.model()}: ≈ ${fmtUsd(S.ledger.saved)}`,
     ]
     for (const [id, p] of S.pending) lines.push(`Waiting on ${p.worker} (task ${id}): ${clip(p.task, 80)}`)
-    if (S.workerName) lines.push(`This session is worker "${S.workerName}"${S.currentTask ? `, working on task ${S.currentTask.id}` : ''}.`)
+    if (S.workerName) lines.push(`This session is worker "${S.workerName}"${S.tasks.length ? `, working on ${S.tasks.map(t => t.id).join(', ')}` : ''}.`)
     return { text: lines.join('\n') }
   })
 
@@ -413,7 +416,7 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined) return next(e)
     const task = TASK_RE.exec(e.text)
     if (task && S.workerName) {
-      S.currentTask = { id: task[1]!, from: task[2]!, replyTo: task[3]! }
+      S.tasks.push({ id: task[1]!, from: task[2]!, replyTo: task[3]!, replyAddress: FROM_RE.exec(e.text)?.[1] ?? null })
       void saveWorker($, { busy: true })
       $.ui.toast(`Task ${task[1]} from ${task[2]}`)
       showStatus($)
@@ -444,13 +447,20 @@ export const register: Register = (on, options) => {
   // Turn ends: a worker sends its report back; cheaper subagents count toward savings.
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    if (e.agentId === undefined && S.currentTask && S.workerName && !e.isAborted) {
-      const t = S.currentTask
-      S.currentTask = null
-      const u = e.usage
-      const header = `[soul-relay result ${t.id} from ${S.workerName} model=${u?.model ?? (await $.session.model())} in=${u?.input_tokens ?? 0} out=${u?.output_tokens ?? 0} cr=${u?.cache_read_input_tokens ?? 0} cw=${u?.cache_creation_input_tokens ?? 0}]`
-      const sent = await $.session.send({ to: { sessionId: t.replyTo }, text: `${header}\n${e.answer || '(the worker finished without a text reply)'}` })
-      if (!sent.isDelivered) $.ui.toast(`Could not return task ${t.id} to ${t.from}: ${sent.reason}`)
+    if (e.agentId === undefined && S.tasks.length && S.workerName && !e.isAborted) {
+      // Every task that arrived before this turn ended was handled in it (deliveries fold into a running turn).
+      const answered = S.tasks.splice(0)
+      const model = e.usage?.model ?? (await $.session.model())
+      for (const [i, t] of answered.entries()) {
+        // The turn's usage is reported once, so savings aren't counted twice.
+        const u = i === 0 ? e.usage : undefined
+        const header = `[soul-relay result ${t.id} from ${S.workerName} model=${model} in=${u?.input_tokens ?? 0} out=${u?.output_tokens ?? 0} cr=${u?.cache_read_input_tokens ?? 0} cw=${u?.cache_creation_input_tokens ?? 0}]`
+        const text = `${header}\n${e.answer || '(the worker finished without a text reply)'}`
+        // Reply to the address the task came from (the sender's own inbox); fall back to its session id.
+        let sent = t.replyAddress ? await $.session.send({ to: t.replyAddress, text }) : null
+        if (!sent?.isDelivered) sent = await $.session.send({ to: { sessionId: t.replyTo }, text })
+        if (!sent.isDelivered) $.ui.toast(`Could not return task ${t.id} to ${t.from}: ${sent.reason}`)
+      }
       void saveWorker($, { busy: false })
       showStatus($)
     } else if (e.agentId !== undefined && e.usage && /haiku|sonnet/.test(e.usage.model)) {

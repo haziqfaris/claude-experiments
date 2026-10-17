@@ -79,7 +79,10 @@ describe('soul-relay', () => {
     } as never)
     await $.session.receive({
       origin: { kind: 'peer', plugin: 'soul-relay' },
-      text: '[soul-relay task abc123 from payments-api session=boss-session]\nList the TODOs in src/.',
+      // As Claude Code delivers it: wrapped in the cross-session envelope.
+      text:
+        'Another Claude session sent a message:\n<cross-session-message from="uds:/tmp/boss.sock" from-name="payments-api-01">\n' +
+        '[soul-relay task abc123 from payments-api session=boss-session]\nList the TODOs in src/.\n</cross-session-message>',
     } as never)
     await $.turn.complete({
       answer: 'Found 4 TODOs in src/handlers.',
@@ -98,8 +101,48 @@ describe('soul-relay', () => {
     } as never)
 
     expect(sends).toHaveLength(1)
-    expect(JSON.stringify(sends[0]!.to)).toContain('boss-session')
+    expect(sends[0]!.to).toBe('uds:/tmp/boss.sock')
     expect(sends[0]!.text).toContain('[soul-relay result abc123 from haiku-1 model=claude-haiku-5-5 in=1200 out=300')
     expect(sends[0]!.text).toContain('Found 4 TODOs')
+  })
+
+  test('two chats sending to one busy worker both get the report back', async ($, on) => {
+    const sends: { to: unknown; text: string }[] = []
+    mock.store(on)
+    mock.clock(on)
+    engineBottom(on)
+    on('session.model', () => ({ value: 'claude-haiku-5-5' }))
+    on('session.id', () => ({ value: 'worker-session' }))
+    on('session.cwd', () => ({ value: '/work/payments-api' }))
+    on('session.start', () => ({ cwd: '/work/payments-api' }))
+    on('session.send', ($, e) => {
+      sends.push({ to: e.to, text: e.text })
+      return { isDelivered: true }
+    })
+    const run = (args: string) =>
+      $.command.run({ command: 'soul-worker', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as never)
+    const deliver = (id: string, sock: string) =>
+      $.session.receive({
+        origin: { kind: 'peer', plugin: 'soul-relay' },
+        text: `Another Claude session sent a message:\n<cross-session-message from="${sock}">\n[soul-relay task ${id} from chat session=s-${id}]\nDo it.\n</cross-session-message>`,
+      } as never)
+
+    await $.session.start({ source: 'startup', cwd: '/work/payments-api', surface: null } as never)
+    await run('haiku-1')
+    await deliver('t1', 'uds:/tmp/a.sock')
+    await deliver('t2', 'uds:/tmp/b.sock')
+    await $.turn.complete({
+      answer: 'Both done.',
+      durationMs: 900,
+      isAborted: false,
+      turnId: 't9',
+      reason: 'answer',
+      usage: { ...USAGE, model: 'claude-haiku-5-5' },
+    } as never)
+    await run('off')
+
+    expect(sends.map(s => s.to)).toEqual(['uds:/tmp/a.sock', 'uds:/tmp/b.sock'])
+    expect(sends[0]!.text).toContain('in=1200')
+    expect(sends[1]!.text).toContain('in=0 out=0')
   })
 })
