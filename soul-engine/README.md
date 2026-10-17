@@ -34,6 +34,12 @@ The hub (`server/`) reads Claude Code's own session transcripts in `~/.claude/pr
 
 The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a cheaper model to `POST /api/delegations`. The dashboard then shows the total saved today in the top bar, the latest hand-offs in the Relay box, and the Soul Engine can answer questions about them. The hub keeps the last 300 reports in memory, so they reset when it restarts.
 
+## Getting around
+
+One bar at the top: the REKA logo (main soul), a project switcher (All projects, or one project), and the screens **Soul**, **Status**, **Relay** and **Inventory**. The screens keep the chosen project, so Status inside PLExyz shows only PLExyz, and the browser's Back button works. Routes: `#/`, `#/status`, `#/relay`, and inside a project `#/p/<project>`, `#/p/<project>/status`, `#/p/<project>/relay`.
+
+On Status, click a project's row to expand it: its repos (stage, branch, uncommitted and unpushed work, commits, last commit, tag, tasks), its chats (model, live or last active, context, tokens and cost, hand-offs), the readiness evidence (verdict, every address with status, page and response time, stage evidence) and the roadmap's current horizon with its recent commits. **Group by** switches the same stats to one row per repo or one row per chat.
+
 ## Personal and community editions
 
 - **Personal (default): subscription only.** Nothing in the hub calls the Anthropic API. Ask the soul inside Claude Code with `/soul` or in plain words; the soul-relay plugin's `soul_*` tools fetch from this hub, and the chat's own model answers on your subscription. The dashboard's ask box answers offline from the inventory and stats. An `ANTHROPIC_API_KEY` elsewhere on your machine is ignored.

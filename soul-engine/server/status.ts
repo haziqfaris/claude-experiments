@@ -323,7 +323,11 @@ export function projectStatus(inv: Inventory, force = false): Promise<ProjectSta
         published: tags[0] ? { tag: tags[0].tag!.tag, date: tags[0].tag!.date, repo: tags[0].repo.name } : null,
         lastCommit: lasts[0] ? { ...lasts[0].last!, repo: lasts[0].repo.name } : null,
         commits30d: facts.reduce((n, f) => n + f.commits30d, 0),
-        repos: facts.map((f) => ({ name: f.repo.name, branch: f.repo.branch, dirty: f.dirty, ahead: f.ahead })),
+        repos: facts.map((f) => ({
+          name: f.repo.name, path: f.repo.path, url: f.repo.repo, branch: f.repo.branch, dirty: f.dirty, ahead: f.ahead,
+          step: estimate(f, anyLive)?.step ?? null, commits: f.commits, commits30d: f.commits30d,
+          lastCommit: f.last, tag: f.tag, tasks: { done: f.done, total: f.total },
+        })),
         note: o.note ?? null,
         readiness: readinessOf(o.stage ? o.stage.padStart(2, '0') : est?.e?.step ?? null, verdicts[0] ?? null, live, o.readiness),
         roadmap,

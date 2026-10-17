@@ -16,7 +16,7 @@ const DOT = { active: 'animate-pulse', recent: '', idle: 'opacity-40' } as const
 const ProjectsDashboard: React.FC<ProjectsDashboardProps> = ({ projects, snapshot, onOpen }) => {
   const kinds = [...new Set(projects.map(p => p.kind))];
   return (
-    <aside className="panel-in absolute left-6 top-32 bottom-6 w-[300px] z-40 hidden xl:flex flex-col gap-3 glass-panel rounded-lg p-4" aria-label="Projects">
+    <aside className="panel-in absolute left-6 top-20 bottom-6 w-[300px] z-40 hidden xl:flex flex-col gap-3 glass-panel rounded-lg p-4" aria-label="Projects">
       <div className="flex items-center justify-between border-b border-reka-cyan/20 pb-2">
         <span className="text-xs font-mono tracking-widest text-reka-cyan uppercase">Souls // Projects</span>
         <span className="text-[10px] font-mono text-gray-400">{projects.filter(p => p.kind !== 'activity').length} projects</span>

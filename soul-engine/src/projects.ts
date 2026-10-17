@@ -78,3 +78,16 @@ export function buildProjects(snapshot: Snapshot | null, inventory: Inventory | 
   for (const s of snaps) if (!used.has(s.id)) out.push(make(s.name, 'activity', [], [], [s]));
   return out.sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || b.lastActivity - a.lastActivity || a.name.localeCompare(b.name));
 }
+
+/** The project a folder belongs to (longest matching repo or activity path), or null. */
+export function projectOfPath(projects: DashProject[], cwd: string): DashProject | null {
+  const c = norm(cwd).replace(/\\/g, '/');
+  let best: { p: DashProject; len: number } | null = null;
+  for (const p of projects) {
+    for (const raw of [...p.repos.flatMap((r) => [r.path, ...(r.alsoAt ?? [])]), ...p.activity.map((a) => a.path)]) {
+      const n = norm(raw).replace(/\\/g, '/');
+      if ((c === n || c.startsWith(n + '/')) && (!best || n.length > best.len || (n.length === best.len && p.kind !== 'activity'))) best = { p, len: n.length };
+    }
+  }
+  return best?.p ?? null;
+}

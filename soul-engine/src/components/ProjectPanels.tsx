@@ -15,7 +15,7 @@ const Stat: React.FC<{ label: string; value: string; hue?: string }> = ({ label,
 export const ActivityPanel: React.FC<{ projects: DashProject[]; onOpen: (name: string) => void }> = ({ projects, onOpen }) => {
   const recent = projects.filter(p => p.lastActivity).sort((a, b) => b.lastActivity - a.lastActivity).slice(0, 8);
   return (
-    <aside className="panel-in absolute right-6 top-32 bottom-6 w-[280px] z-40 hidden xl:flex flex-col gap-3 glass-panel rounded-lg p-4 overflow-y-auto scrollbar-hide" aria-label="Recent activity">
+    <aside className="panel-in absolute right-6 top-20 bottom-6 w-[280px] z-40 hidden xl:flex flex-col gap-3 glass-panel rounded-lg p-4 overflow-y-auto scrollbar-hide" aria-label="Recent activity">
       <div className="border-b border-reka-cyan/20 pb-2 text-[10px] font-mono tracking-widest text-reka-magenta uppercase">Main soul // Recent resonance</div>
       {recent.map(p => {
         const hue = hueOf(p.name);
@@ -50,7 +50,7 @@ export const ProjectSidePanel: React.FC<ProjectSideProps> = ({ project: p, onBac
   const hue = hueOf(p.name);
   const btn = 'flex items-center gap-2 text-[11px] font-mono uppercase tracking-widest rounded px-3 py-2 border hover:bg-white/5';
   return (
-    <aside key={p.name} className="panel-in absolute left-6 top-32 bottom-6 w-[300px] z-40 hidden xl:flex flex-col gap-4 glass-panel rounded-lg p-4 overflow-y-auto scrollbar-hide" aria-label={`Project ${p.name}`} style={{ borderColor: `${hue}44` }}>
+    <aside key={p.name} className="panel-in absolute left-6 top-20 bottom-6 w-[300px] z-40 hidden xl:flex flex-col gap-4 glass-panel rounded-lg p-4 overflow-y-auto scrollbar-hide" aria-label={`Project ${p.name}`} style={{ borderColor: `${hue}44` }}>
       <div className="border-b pb-2" style={{ borderColor: `${hue}33` }}>
         <button type="button" onClick={onBack} className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-gray-400 hover:text-white"><ArrowLeft size={11} /> Main soul</button>
         <h2 className="text-lg font-bold tracking-wider mt-1" style={{ color: hue, textShadow: `0 0 8px ${hue}88` }}>{p.name}</h2>
@@ -104,7 +104,7 @@ export const ProjectSessionsPanel: React.FC<{ project: DashProject; detail: Proj
   const hue = hueOf(p.name);
   const files = (detail?.sessions ?? []).flatMap(s => s.files).sort((a, b) => b.ts - a.ts).slice(0, 6);
   return (
-    <aside key={p.name} className="panel-in absolute right-6 top-32 bottom-6 w-[280px] z-40 hidden xl:flex flex-col gap-3 glass-panel rounded-lg p-4 overflow-y-auto scrollbar-hide" aria-label={`Sessions in ${p.name}`} style={{ borderColor: `${hue}44` }}>
+    <aside key={p.name} className="panel-in absolute right-6 top-20 bottom-6 w-[280px] z-40 hidden xl:flex flex-col gap-3 glass-panel rounded-lg p-4 overflow-y-auto scrollbar-hide" aria-label={`Sessions in ${p.name}`} style={{ borderColor: `${hue}44` }}>
       <div className="border-b pb-2 text-[10px] font-mono tracking-widest uppercase" style={{ borderColor: `${hue}33`, color: hue }}>Sessions // {p.name}</div>
       {!p.sessions.length && <p className="text-xs font-mono text-gray-400">No Claude Code sessions in this project in the last 30 days.</p>}
       {p.sessions.slice(0, 6).map(s => {

@@ -192,7 +192,7 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk, s
   if (!open) return null;
   const kinds = [...new Set(view.map(v => v.g.kind))];
   return (
-    <div className="panel-in fixed inset-x-4 top-28 bottom-6 z-[60] mx-auto max-w-6xl flex flex-col gap-3 glass-panel rounded-lg p-4" style={{ background: 'rgba(4, 8, 17, 0.97)' }} role="dialog" aria-label="Project inventory">
+    <div className="panel-in fixed inset-x-4 top-20 bottom-6 z-[60] mx-auto max-w-6xl flex flex-col gap-3 glass-panel rounded-lg p-4" style={{ background: 'rgba(4, 8, 17, 0.97)' }} role="dialog" aria-label="Project inventory">
       <div className="flex flex-wrap items-center gap-3 border-b border-reka-cyan/20 pb-2">
         <Database size={14} className="text-reka-cyan" />
         <span className="text-xs font-mono tracking-widest text-reka-cyan uppercase">Inventory // {scope ?? 'Projects and repos'}</span>

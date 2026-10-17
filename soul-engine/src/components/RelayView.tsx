@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowLeft, Check, Copy, CornerDownLeft, GitBranch, Lightbulb, ListChecks, Workflow } from 'lucide-react';
+import { Check, Copy, CornerDownLeft, GitBranch, Lightbulb, ListChecks, Workflow } from 'lucide-react';
 import { Delegation, FlowAgent, FlowChat, FlowGraph, FlowSuggestion, StepRoute } from '../types';
-import { DashProject, hueOf, MAIN_HUE } from '../projects';
+import { DashProject, hueOf, MAIN_HUE, projectOfPath } from '../projects';
 import { ago, fmtCost, fmtTokens } from '../format';
 
 type Family = 'opus' | 'sonnet' | 'haiku';
@@ -20,20 +20,7 @@ function family(model: string | null | undefined, fallback: Family = 'opus'): Fa
   return fallback;
 }
 const fmtDur = (ms: number) => (ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))}s` : ms < 3_600_000 ? `${Math.round(ms / 60_000)}m` : `${(ms / 3_600_000).toFixed(1)}h`);
-const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-
-/** The project a chat's folder belongs to, from the dashboard's projects. */
-function projectOf(projects: DashProject[], cwd: string): DashProject | null {
-  const c = norm(cwd);
-  let best: { p: DashProject; len: number } | null = null;
-  for (const p of projects) {
-    for (const path of [...p.repos.flatMap(r => [r.path, ...(r.alsoAt ?? [])]), ...p.activity.map(a => a.path)]) {
-      const n = norm(path);
-      if ((c === n || c.startsWith(n + '/')) && (!best || n.length > best.len)) best = { p, len: n.length };
-    }
-  }
-  return best?.p ?? null;
-}
+const projectOf = projectOfPath;
 
 const Pill: React.FC<{ fam: Family; text?: string }> = ({ fam, text }) => (
   <span className="text-[10px] font-mono uppercase tracking-widest rounded px-1.5 py-0.5" style={{ color: COLOR[fam], border: `1px solid ${COLOR[fam]}55`, background: `${COLOR[fam]}12` }}>{text ?? fam}</span>
@@ -178,10 +165,9 @@ const RelayView: React.FC<RelayViewProps> = ({ flow, projects, project, onBack }
   const t = flow?.totals;
 
   return (
-    <div className="panel-in absolute inset-x-6 top-32 bottom-6 z-40 flex gap-4">
+    <div className="panel-in absolute inset-x-6 top-20 bottom-6 z-40 flex gap-4">
       {/* Chats */}
       <aside className="w-[280px] shrink-0 hidden lg:flex flex-col gap-2 glass-panel rounded-lg p-3 overflow-y-auto scrollbar-hide" aria-label="Chats">
-        <button type="button" onClick={onBack} className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-gray-400 hover:text-white"><ArrowLeft size={11} /> {project ? `Soul of ${project}` : 'Main soul'}</button>
         <div className="text-xs font-mono tracking-widest uppercase border-b border-reka-cyan/20 pb-2" style={{ color: hue }}>Relay // {project ?? 'all projects'}</div>
         {!flow && <p className="text-xs font-mono text-gray-400">Reading chats…</p>}
         {flow && !sorted.length && <p className="text-xs font-mono text-gray-400">No chats in the last 24 hours{project ? ` in ${project}` : ''}.</p>}

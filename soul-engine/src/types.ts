@@ -307,7 +307,20 @@ export interface ProjectStatus {
   published: { tag: string; date: number; repo: string } | null;
   lastCommit: { date: number; subject: string; repo: string } | null;
   commits30d: number;
-  repos: { name: string; branch: string | null; dirty: number; ahead: number | null }[];
+  repos: {
+    name: string;
+    path: string;
+    url: string | null;
+    branch: string | null;
+    dirty: number;
+    ahead: number | null;
+    step: string | null;
+    commits: number;
+    commits30d: number;
+    lastCommit: { date: number; subject: string } | null;
+    tag: { tag: string; date: number } | null;
+    tasks: { done: number; total: number };
+  }[];
   note: string | null;
   next: string;
   readiness: Readiness;
