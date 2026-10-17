@@ -19,6 +19,7 @@ import { inventoryContext } from './inventory';
 import { routePlan, routesMarkdown, suggestRoutes } from './routes';
 import { projectStatus, statusMarkdown } from './status';
 import { roadmapChanges, roadmapMarkdown } from './roadmap';
+import { guard } from './guard';
 import type { FlowGraph, Inventory } from '../src/types';
 
 /** The project (a group in projects.local.json) a folder belongs to, by repo path. */
@@ -120,6 +121,7 @@ const MIME: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json',
   '.woff2': 'font/woff2',
 };
 
@@ -143,6 +145,20 @@ async function serveStatic(urlPath: string, res: http.ServerResponse) {
 }
 
 const server = http.createServer(async (req, res) => {
+  // Only the dashboard, the REKA browser extension and local programs may use the hub (see guard.ts).
+  const allowed = guard(req, PORT);
+  if (!allowed.ok) {
+    console.warn(`  refused ${req.method} ${req.url}: ${allowed.why}`);
+    return json(res, 403, { error: 'Refused: this hub only answers the REKA dashboard, its extension and local programs.' });
+  }
+  if (allowed.cors) {
+    res.setHeader('access-control-allow-origin', allowed.cors);
+    res.setHeader('vary', 'origin');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, { 'access-control-allow-methods': 'GET, POST', 'access-control-allow-headers': 'content-type', 'access-control-max-age': '600' });
+      return res.end();
+    }
+  }
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
   try {
     if (req.method === 'GET' && url.pathname === '/api/snapshot') return json(res, 200, snap);
@@ -311,6 +327,6 @@ setInterval(async () => {
 }, 2000);
 
 server.listen(PORT, HOST, () => {
-  console.log(`REKA Soul Engine hub on http://${HOST}:${PORT}`);
+  console.log(`REKA Soul Engine hub on http://localhost:${PORT} (listening on ${HOST}; use localhost for the app and Windows Hello)`);
   console.log(`  source: ${snap.source === 'demo' ? 'demo data' : index.root} · ${snap.projects.length} project(s) · ask box: ${askUsesApi() ? `API (${soulModel})` : "offline; ask in Claude Code with /soul"}`);
 });

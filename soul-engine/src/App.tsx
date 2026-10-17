@@ -8,6 +8,8 @@ import InventoryPanel from './components/InventoryPanel';
 import RelayView from './components/RelayView';
 import StatusView from './components/StatusView';
 import NavBar, { View } from './components/NavBar';
+import LockScreen from './components/LockScreen';
+import { LockPrefs, readLocked, readPrefs, writeLocked, writePrefs } from './lock';
 import { SoulMood, Message, OrbitNode, ChatTurn } from './types';
 import { querySoulEngine, useFlow, useInventory, useProjectDetail, useSnapshot, useStatus } from './services/soulService';
 import { buildProjects, hueOf, MAIN_HUE, seedOf } from './projects';
@@ -51,6 +53,27 @@ const App: React.FC = () => {
     fetch('/api/config').then(r => r.json()).then((c: { ask?: 'api' | 'subscription' }) => setAskMode(c.ask === 'api' ? 'api' : 'subscription')).catch(() => {});
   }, []);
   const glowTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Away mode: lock by hand (button or Ctrl+Shift+L) or after idle minutes; it survives a reload.
+  const [locked, setLocked] = useState(readLocked);
+  const [lockPrefs, setLockPrefs] = useState<LockPrefs>(readPrefs);
+  const lock = useCallback(() => { writeLocked(true); setLocked(true); }, []);
+  const unlock = useCallback(() => { writeLocked(false); setLocked(false); }, []);
+  const savePrefs = useCallback((p: LockPrefs) => { writePrefs(p); setLockPrefs(p); }, []);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l') { e.preventDefault(); lock(); } };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [lock]);
+  useEffect(() => {
+    if (locked || !lockPrefs.autoMin) return;
+    let t: ReturnType<typeof setTimeout>;
+    const arm = () => { clearTimeout(t); t = setTimeout(lock, lockPrefs.autoMin * 60_000); };
+    const events = ['pointermove', 'pointerdown', 'keydown', 'wheel'];
+    events.forEach(ev => window.addEventListener(ev, arm, { passive: true }));
+    arm();
+    return () => { clearTimeout(t); events.forEach(ev => window.removeEventListener(ev, arm)); };
+  }, [locked, lockPrefs.autoMin, lock]);
 
   useEffect(() => {
     const onHash = () => { setScope(readScope()); setRelay(readRelay()); setStatusView(readStatus()); setInvView(null); };
@@ -211,6 +234,9 @@ const App: React.FC = () => {
         inventoryOpen={invView != null}
         onNavigate={navigate}
         onInventory={() => setInvView(v => (v ? null : { mode: 'inventory', register: false }))}
+        lockPrefs={lockPrefs}
+        onLockPrefs={savePrefs}
+        onLock={lock}
         badges={{
           status: status ? `${status.filter(s => (!scope || s.name === scope) && s.live.some(l => l.ok && !l.staging)).length} live` : undefined,
           relay: flow && flow.totals.running ? `${flow.totals.running} running` : undefined,
@@ -267,6 +293,7 @@ const App: React.FC = () => {
         askMode={askMode}
       />}
 
+      {locked && <LockScreen snapshot={snapshot} flow={flow} status={status} pinHash={lockPrefs.pinHash} hello={lockPrefs.hello} onUnlock={unlock} />}
     </div>
   );
 };

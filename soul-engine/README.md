@@ -34,6 +34,18 @@ The hub (`server/`) reads Claude Code's own session transcripts in `~/.claude/pr
 
 The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a cheaper model to `POST /api/delegations`. The dashboard then shows the total saved today in the top bar, the latest hand-offs in the Relay box, and the Soul Engine can answer questions about them. The hub keeps the last 300 reports in memory, so they reset when it restarts.
 
+## As a desktop app, and in the browser
+
+**App window.** Open **http://localhost:7777** in Edge or Chrome, then menu, Apps, *Install this site as an app*. It gets its own window, taskbar and Start menu entry, and shortcuts to Status and Relay. Use localhost, not 127.0.0.1: Windows Hello needs a name. The full-screen button in the bar (or F11) fills the screen.
+
+**Start at sign-in.** `npm run autostart` adds a small script to your Windows Start-up folder that starts the hub hidden, logging to `~/.claude/soul-engine/hub.log`. `npm run autostart -- off` removes it; `-- status` tells you. Run `npm run build` after pulling changes so the hub serves the new dashboard.
+
+**Lock (away mode).** The **Lock** button, Ctrl+Shift+L, or a number of idle minutes (default 10) covers the dashboard with the soul alone, drifting and murmuring about what is happening without naming anything ("two chats still thinking", "one light has gone quiet"). It stays locked through a reload. Unlock with Windows Hello (face, fingerprint or Windows PIN, set up from the menu next to Lock), with a PIN of your own as the fallback, or with any key if neither is set. It is a privacy screen for this window; Win+L is what secures the computer.
+
+**Browser extension** (`extension/`). In Edge, open `edge://extensions`, turn on Developer mode, choose *Load unpacked* and pick the `soul-engine/extension` folder (Chrome: `chrome://extensions`, same steps). Clicking its icon opens a side panel: the project behind the page you are on (matched inside the extension, never sent anywhere), the chats working or waiting for you, and every project's readiness and next step. The icon shows how many chats wait for you, or `!` when one of your sites stops answering. Its ID is fixed by the key in its manifest, so the hub can let exactly that extension in.
+
+**Who may use the hub.** It listens on 127.0.0.1 only, and `server/guard.ts` refuses any browser request that does not come from the dashboard itself or from the extension, and any request whose Host is not this hub (which blocks DNS rebinding). Programs on this machine, such as the soul-relay plugin, are allowed; they could read `~/.claude` directly anyway. Add another extension's ID with `SOUL_EXTENSION_IDS`.
+
 ## Getting around
 
 One bar at the top: the REKA logo (main soul), a project switcher (All projects, or one project), and the screens **Soul**, **Status**, **Relay** and **Inventory**. The screens keep the chosen project, so Status inside PLExyz shows only PLExyz, and the browser's Back button works. Routes: `#/`, `#/status`, `#/relay`, and inside a project `#/p/<project>`, `#/p/<project>/status`, `#/p/<project>/relay`.

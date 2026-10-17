@@ -10,7 +10,8 @@
     "dev:web": "vite",
     "build": "vite build",
     "start": "tsx server/index.ts",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "autostart": "node scripts/autostart.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",

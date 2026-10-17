@@ -1,0 +1,27 @@
+:root {
+  --bg: #050a14; --panel: #0a1424; --line: rgba(0, 242, 255, 0.14); --cyan: #00f2ff; --text: #e5e7eb; --muted: #8b93a1;
+  --gold: #ffd700; --teal: #4dffe1; --red: #ff6b6b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 12px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+header { position: sticky; top: 0; display: flex; align-items: center; gap: 6px; padding: 10px 12px; background: rgba(5, 10, 20, 0.95); border-bottom: 1px solid var(--line); }
+.brand { font-weight: 700; letter-spacing: 0.2em; color: #fff; }
+.sub { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em; }
+header button { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--cyan); border-radius: 4px; padding: 2px 8px; font: inherit; cursor: pointer; }
+header button + button { margin-left: 0; }
+header button:hover { background: rgba(0, 242, 255, 0.08); }
+main { padding: 10px 12px; display: flex; flex-direction: column; gap: 14px; }
+h2 { margin: 0 0 6px; font-size: 10px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.2em; color: rgba(0, 242, 255, 0.6); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; border-left-width: 3px; }
+.row { display: flex; align-items: center; gap: 6px; }
+.name { font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.right { margin-left: auto; white-space: nowrap; }
+.muted { color: var(--muted); }
+.small { font-size: 10px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.clip { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.items { margin: 4px 0 0; padding: 0; list-style: none; }
+.items li { display: flex; gap: 6px; font-size: 11px; }
+footer { padding: 10px 12px 14px; font-size: 10px; border-top: 1px solid var(--line); }
+a { color: var(--cyan); }

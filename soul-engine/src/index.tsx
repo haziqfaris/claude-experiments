@@ -14,3 +14,8 @@ root.render(
     <App />
   </React.StrictMode>
 );
+
+// Installable as an app (Edge or Chrome: "Install this site as an app"); the shell survives a hub restart.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}

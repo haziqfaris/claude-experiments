@@ -283,11 +283,14 @@ function nextStep(s: Omit<ProjectStatus, 'next'>): string {
   return `Next gate: ${s.stage.nextGate ?? 'none'}.`;
 }
 
-let cache: { at: number; data: ProjectStatus[] } | null = null;
+let cache: { at: number; scan: number; data: ProjectStatus[] } | null = null;
 let inflight: Promise<ProjectStatus[]> | null = null;
 
 export function projectStatus(inv: Inventory, force = false): Promise<ProjectStatus[]> {
-  if (!force && cache && Date.now() - cache.at < 5 * 60_000) return Promise.resolve(cache.data);
+  // Until the first inventory scan finishes there is nothing to report, and nothing is cached.
+  if (!inv.scannedAt || !inv.groups.length) return Promise.resolve([]);
+  // A new scan invalidates the cache; otherwise it holds for five minutes.
+  if (!force && cache && cache.scan === inv.scannedAt && Date.now() - cache.at < 5 * 60_000) return Promise.resolve(cache.data);
   if (inflight) return inflight;
   inflight = (async () => {
     const ov = await overrides();
@@ -334,7 +337,7 @@ export function projectStatus(inv: Inventory, force = false): Promise<ProjectSta
       };
       return { ...base, next: nextStep(base) };
     });
-    cache = { at: Date.now(), data };
+    cache = { at: Date.now(), scan: inv.scannedAt, data };
     void saveRoadmaps(data.map((d) => ({ project: d.name, roadmap: d.roadmap }))).catch(() => {});
     return data;
   })().finally(() => { inflight = null; });
