@@ -58,6 +58,8 @@ Press **INVENTORY** in the top bar, or type `/find <text>` in the terminal, to s
 | Defaults | Ports, Node version, regions, time zone, currency, AI models referenced | scripts, configs, source |
 | Access Register | Rows of `ACCESS-REGISTER.md` where a repo keeps one (REKA Handover kit) | `docs/continuity/` |
 
+The inventory is organised **by project, then repo**: list your projects and their repos in `projects.local.json` (copy `projects.example.json`; it is git-ignored, so client names stay on your machine). Repos nobody grouped become their own project. With the `gh` CLI signed in, your GitHub repos that are not cloned on this machine are listed under their project as "not cloned".
+
 Every fact shows the file and line it came from. Ask the core in plain words ("which projects send e-mail from noreply@…?", "where is the Stripe key used?") and it answers from the inventory; without Claude credentials it answers with the closest matches.
 
 **Safety.** The scan is read-only and runs on your machine. It never opens `.env` files (only `.env.example` and similar, names only), and anything that looks like a password, key or token in a line is replaced with `[hidden]`. Addresses on your own domains (`SOUL_OWN_DOMAINS`) and role addresses (`noreply@`, `support@`) are shown in full; personal and client addresses are masked (`a•••@client.com`). Copies and worktrees of one repo are shown as one project. The inventory is kept in memory, rebuilt every 15 minutes or on **Rescan**, and never written into this repo. Asking a question sends the relevant part to the Claude API, like any other question.
