@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type {
   ActivityStatus,
+  FlowAgent,
+  FlowChat,
   ProjectSnapshot,
   SessionDetail,
   SessionSummary,
@@ -45,6 +47,30 @@ interface FileAcc {
   files: Map<string, number>;
   reportedCost: number | null;
   lastPrompt: string | null;
+  // Relay: what the chat is doing and the work it hands off.
+  agentId: string | null;
+  meta: { agentType?: string; description?: string; toolUseId?: string } | null;
+  lastStop: string | null;
+  doing: { tool: string; detail: string; ts: number } | null;
+  todos: { content: string; status: string }[];
+  recentTools: string[];
+  launches: Map<string, Launch>;
+  plan: { ts: number; steps: string[] } | null;
+}
+
+/** A hand-off seen in a chat: an Agent/Task call, a delegate() call or a workflow. */
+interface Launch {
+  id: string;
+  kind: FlowAgent['kind'];
+  label: string;
+  agentType: string | null;
+  model: string | null;
+  task: string;
+  ts: number;
+  endedAt: number | null;
+  isError: boolean;
+  background: boolean;
+  agentId: string | null;
 }
 
 interface SessionAgg {
@@ -82,6 +108,14 @@ function newAcc(file: string): FileAcc {
     files: new Map(),
     reportedCost: null,
     lastPrompt: null,
+    agentId: null,
+    meta: null,
+    lastStop: null,
+    doing: null,
+    todos: [],
+    recentTools: [],
+    launches: new Map(),
+    plan: null,
   };
 }
 
@@ -109,6 +143,23 @@ function textOf(content: unknown): string | null {
   return parts.join('\n');
 }
 
+const SECRETISH = /(sk-[a-z0-9-]{8,}|ghp_[a-z0-9]{10,}|eyJ[a-z0-9_-]{10,}|(?:key|token|secret|password)\s*[=:]\s*\S+)/gi;
+
+/** What a tool call is doing, in a few words. Bash shows its description, never a raw secret. */
+function describeTool(name: string, input: Record<string, any> | undefined): string {
+  const i = input ?? {};
+  const base = (p: unknown) => (typeof p === 'string' ? p.split(/[\\/]/).slice(-2).join('/') : '');
+  if (name === 'Bash' || name === 'PowerShell') return clip(String(i.description || i.command || '').replace(SECRETISH, '•••'), 90);
+  if (name === 'Read' || name === 'Edit' || name === 'Write' || name === 'NotebookEdit') return base(i.file_path ?? i.notebook_path);
+  if (name === 'Grep' || name === 'Glob') return clip(String(i.pattern ?? ''), 60);
+  if (name === 'Agent' || name === 'Task') return clip(String(i.description ?? ''), 80);
+  if (name === 'WebFetch' || name === 'WebSearch') return clip(String(i.url ?? i.query ?? ''), 80);
+  if (name.endsWith('__delegate')) return clip(String(i.task ?? ''), 80);
+  return '';
+}
+
+const LAUNCH = /^(Agent|Task|Workflow|mcp__soul-relay__delegate)$/;
+
 function ingestLine(acc: FileAcc, line: string) {
   let o: Record<string, any>;
   try {
@@ -118,6 +169,7 @@ function ingestLine(acc: FileAcc, line: string) {
   }
   if (typeof o.sessionId === 'string' && !acc.sessionId) acc.sessionId = o.sessionId;
   if (o.isSidechain === true) acc.isSidechain = true;
+  if (typeof o.agentId === 'string' && !acc.agentId) acc.agentId = o.agentId;
   // A session belongs to the folder it started in, even if it later cd's elsewhere.
   if (typeof o.cwd === 'string' && !acc.cwd) acc.cwd = o.cwd;
   if (typeof o.gitBranch === 'string' && o.gitBranch) acc.branch = o.gitBranch;
@@ -145,7 +197,37 @@ function ingestLine(acc: FileAcc, line: string) {
           cost: estimateCost(model, u),
         });
       }
+      if (typeof m.stop_reason === 'string') acc.lastStop = m.stop_reason;
       for (const b of Array.isArray(m.content) ? m.content : []) {
+        if (b?.type === 'tool_use' && typeof b.name === 'string') {
+          const at = Number.isNaN(ts) ? acc.lastTs : ts;
+          acc.doing = { tool: b.name, detail: describeTool(b.name, b.input), ts: at };
+          acc.recentTools.push(b.name);
+          if (acc.recentTools.length > 40) acc.recentTools.splice(0, acc.recentTools.length - 40);
+          if (b.name === 'TodoWrite' && Array.isArray(b.input?.todos)) {
+            acc.todos = b.input.todos.slice(0, 12).map((t: any) => ({ content: clip(String(t.content ?? ''), 120), status: String(t.status ?? 'pending') }));
+          }
+          // A plan: the steps of an ExitPlanMode plan, or of a to-do list.
+          if (b.name === 'ExitPlanMode' && typeof b.input?.plan === 'string') {
+            const steps = String(b.input.plan).split('
+').map((l) => /^\s*(?:\d+[.)]|[-*])\s+(.+)/.exec(l)?.[1]).filter((x): x is string => !!x).map((x) => clip(x.replace(/\*\*/g, ''), 140));
+            if (steps.length) acc.plan = { ts: at, steps: steps.slice(0, 20) };
+          } else if (b.name === 'TodoWrite' && acc.todos.length) {
+            acc.plan = { ts: at, steps: acc.todos.map((t) => t.content) };
+          }
+          if (LAUNCH.test(b.name) && typeof b.id === 'string') {
+            const i = b.input ?? {};
+            const kind: FlowAgent['kind'] = b.name === 'Workflow' ? 'workflow' : b.name.endsWith('__delegate') ? 'delegate' : 'subagent';
+            acc.launches.set(b.id, {
+              id: b.id, kind,
+              label: clip(String(i.description ?? i.task ?? (kind === 'workflow' ? 'workflow' : b.name)), 80),
+              agentType: typeof i.subagent_type === 'string' ? i.subagent_type : kind === 'delegate' ? (i.worker ? 'worker' : 'delegate') : null,
+              model: typeof i.model === 'string' ? i.model : kind === 'delegate' ? 'haiku' : null,
+              task: clip(String(i.prompt ?? i.task ?? ''), 300),
+              ts: at, endedAt: null, isError: false, background: i.run_in_background === true, agentId: null,
+            });
+          }
+        }
         if (b?.type === 'text' && b.text && !acc.isSidechain) {
           pushCapped(acc.replies, { ts, text: clip(String(b.text), 700) }, 4);
         } else if (b?.type === 'tool_use' && typeof b.name === 'string') {
@@ -157,6 +239,16 @@ function ingestLine(acc: FileAcc, line: string) {
       break;
     }
     case 'user': {
+      // A hand-off returns: the tool_result of its launch.
+      for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
+        const l = b?.type === 'tool_result' ? acc.launches.get(b.tool_use_id) : undefined;
+        if (!l) continue;
+        const r = o.toolUseResult ?? {};
+        if (typeof r.agentId === 'string') l.agentId = r.agentId;
+        if (typeof r.resolvedModel === 'string') l.model = r.resolvedModel;
+        if (r.status === 'async_launched' || r.isAsync === true) l.background = true;
+        else { l.endedAt = Number.isNaN(ts) ? acc.lastTs : ts; l.isError = b.is_error === true; }
+      }
       if (o.isMeta || acc.isSidechain) break;
       const text = textOf(o.message?.content);
       if (text && !text.trimStart().startsWith('<')) {
@@ -267,6 +359,9 @@ export class TranscriptIndex {
       if (!acc) {
         acc = newAcc(file);
         this.accs.set(file, acc);
+        if (rel.includes('subagents')) {
+          try { acc.meta = JSON.parse(await fs.readFile(file.replace(/\.jsonl$/, '.meta.json'), 'utf8')); } catch { /* no meta */ }
+        }
       }
       if (st.size !== acc.offset) {
         try {
@@ -429,6 +524,67 @@ export class TranscriptIndex {
       burn,
       relay: { countToday: 0, costToday: 0, savedToday: 0, recent: [] },
     };
+  }
+
+  /** Relay: live and recent chats, what each is doing, and the work it handed off. */
+  flow(windowMs = 24 * 3_600_000): FlowChat[] {
+    const now = Date.now();
+    const dayStart = startOfDay(now);
+    const mains = new Map<string, FileAcc>();
+    const subs = new Map<string, FileAcc[]>();
+    for (const acc of this.accs.values()) {
+      if (!acc.sessionId) continue;
+      if (acc.isSidechain || acc.agentId) {
+        const list = subs.get(acc.sessionId) ?? [];
+        list.push(acc);
+        subs.set(acc.sessionId, list);
+      } else {
+        const cur = mains.get(acc.sessionId);
+        if (!cur || acc.lastTs > cur.lastTs) mains.set(acc.sessionId, acc);
+      }
+    }
+    const aggs = new Map(this.sessions().map((s) => [s.id, s]));
+    const chats: FlowChat[] = [];
+    for (const [id, m] of mains) {
+      if (!m.cwd || now - m.lastTs > windowMs) continue;
+      const agg = aggs.get(id);
+      const sum = agg ? this.summarize(agg, now, dayStart) : null;
+      const files = subs.get(id) ?? [];
+      const byLaunch = new Map<string, FileAcc>();
+      for (const f of files) {
+        const key = f.meta?.toolUseId ?? [...m.launches.values()].find((l) => l.agentId && l.agentId === f.agentId)?.id;
+        if (key) byLaunch.set(key, f);
+      }
+      const agents: FlowAgent[] = [...m.launches.values()].sort((a, b) => b.ts - a.ts).slice(0, 12).map((l) => {
+        const f = byLaunch.get(l.id);
+        const calls = f ? [...f.calls.values()] : [];
+        const last = f?.lastTs ?? l.endedAt ?? l.ts;
+        const model = calls[calls.length - 1]?.model ?? l.model;
+        // A background sub-agent has returned once its last turn ended and it went quiet.
+        const status: FlowAgent['status'] = l.isError ? 'failed'
+          : l.endedAt != null && !l.background ? 'returned'
+          : f && f.lastStop === 'end_turn' && now - f.lastTs > 15_000 ? 'returned'
+          : now - last > 10 * 60_000 ? (l.background ? 'returned' : 'stopped')
+          : 'running';
+        return {
+          id: l.id, kind: l.kind, label: l.label || f?.meta?.description || 'task',
+          agentType: l.agentType ?? f?.meta?.agentType ?? null, model, task: l.task, status, background: l.background,
+          startedAt: l.ts, endedAt: status === 'running' ? null : l.endedAt ?? last, lastActivity: last,
+          tokens: calls.reduce((n, c) => n + tokensOf(c), 0), cost: calls.length ? sumCost(calls) : null,
+          toolCalls: f ? [...f.tools.values()].reduce((a, b) => a + b, 0) : 0,
+        };
+      });
+      const status = statusOf(m.lastTs, now);
+      chats.push({
+        id, title: sum?.title ?? m.lastPrompt ?? 'Untitled chat', cwd: m.cwd, folder: path.basename(m.cwd) || m.cwd,
+        model: sum?.model ?? null, status,
+        phase: status === 'idle' ? 'idle' : m.lastStop === 'end_turn' ? 'waiting' : 'working',
+        lastActivity: m.lastTs, prompt: m.prompts[m.prompts.length - 1]?.text ?? m.lastPrompt,
+        doing: m.doing, todos: m.todos, plan: m.plan, contextPct: sum?.contextPct ?? null, costToday: sum?.costToday ?? null,
+        recentTools: m.recentTools.slice(-30), agents,
+      });
+    }
+    return chats.sort((a, b) => b.lastActivity - a.lastActivity).slice(0, 14);
   }
 
   /** Per-session detail (recent prompts, replies, tools, files) for one project. */

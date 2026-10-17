@@ -197,3 +197,66 @@ export interface Inventory {
   projects: ProjectInventory[];
   groups: InventoryGroup[];
 }
+
+// ---- Relay: what each chat is doing, and where its work went ----
+
+export type FlowAgentStatus = 'running' | 'returned' | 'failed' | 'stopped';
+
+/** Work a chat handed off: a sub-agent, a delegate() call to a cheaper model, or a workflow. */
+export interface FlowAgent {
+  id: string;
+  kind: 'subagent' | 'delegate' | 'workflow';
+  label: string;
+  agentType: string | null;
+  model: string | null;
+  task: string;
+  status: FlowAgentStatus;
+  background: boolean;
+  startedAt: number;
+  endedAt: number | null;
+  lastActivity: number;
+  tokens: number;
+  cost: number | null;
+  toolCalls: number;
+}
+
+export interface FlowChat {
+  id: string;
+  title: string;
+  cwd: string;
+  folder: string;
+  model: string | null;
+  status: ActivityStatus;
+  /** 'working' while it calls tools, 'waiting' when its turn ended and it waits for you. */
+  phase: 'working' | 'waiting' | 'idle';
+  lastActivity: number;
+  prompt: string | null;
+  doing: { tool: string; detail: string; ts: number } | null;
+  todos: { content: string; status: string }[];
+  /** The latest plan the chat wrote (plan mode or a to-do list): the soul splits it across models and chats. */
+  plan: { ts: number; steps: string[] } | null;
+  contextPct: number | null;
+  costToday: number | null;
+  recentTools: string[];
+  agents: FlowAgent[];
+}
+
+export interface FlowSuggestion {
+  id: string;
+  chatId: string;
+  kind: 'downshift' | 'mechanical' | 'fresh-chat' | 'text-task' | 'same-folder';
+  title: string;
+  why: string;
+  to: string;
+  saving: number | null;
+  /** Text to paste into that chat. Nothing is sent for you. */
+  instruction: string;
+}
+
+export interface FlowGraph {
+  generatedAt: number;
+  chats: FlowChat[];
+  suggestions: FlowSuggestion[];
+  delegations: Delegation[];
+  totals: { liveChats: number; running: number; returnedToday: number; handoffCostToday: number; possibleSaving: number };
+}
