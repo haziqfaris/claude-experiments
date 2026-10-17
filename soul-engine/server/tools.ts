@@ -5,7 +5,23 @@ import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { ProjectInventory } from '../src/types';
+import type { Inventory, ProjectInventory } from '../src/types';
+
+/** A project soul's boundary: its name and the repo names it may touch. */
+export interface SoulScope { name: string; repos: Set<string> }
+
+export function scopedInventory(inv: Inventory, scope: SoulScope | null): Inventory {
+  if (!scope) return inv;
+  return { ...inv, projects: inv.projects.filter((p) => scope.repos.has(p.name.toLowerCase())), groups: inv.groups.filter((g) => g.name === scope.name) };
+}
+
+/** The scope of a project (a group in projects.local.json), or of a lone repo with that name. */
+export function scopeFor(inv: Inventory, name: string | null | undefined): SoulScope | null {
+  if (!name) return null;
+  const g = inv.groups.find((x) => x.name === name);
+  const repos = g ? inv.projects.filter((p) => g.repos.includes(p.id)) : inv.projects.filter((p) => p.name === name);
+  return { name, repos: new Set(repos.map((r) => r.name.toLowerCase())) };
+}
 import { accessRegisterDraft, rotationChecklist } from './docs';
 import { changeReportMarkdown, diffInventories, snapshotBefore } from './history';
 import { InventoryIndex, inventoryContext, scrub, searchInventory } from './inventory';
@@ -33,9 +49,9 @@ export const SOUL_TOOLS: Anthropic.Beta.BetaTool[] = [
 
 const clip = (s: string) => (s.length > MAX_OUT ? s.slice(0, MAX_OUT) + `\n…[cut at ${MAX_OUT} characters]` : s);
 
-function findRepo(index: InventoryIndex, name: string): ProjectInventory | null {
+function findRepo(index: InventoryIndex, name: string, scope: SoulScope | null): ProjectInventory | null {
   const n = String(name ?? '').toLowerCase().trim();
-  const all = index.get().projects;
+  const all = scopedInventory(index.get(), scope).projects;
   return all.find((p) => p.name.toLowerCase() === n) ?? all.find((p) => path.basename(p.path).toLowerCase() === n)
     ?? all.find((p) => p.project.toLowerCase() === n) ?? all.find((p) => p.name.toLowerCase().includes(n)) ?? null;
 }
@@ -53,8 +69,9 @@ const need = (input: Input, keys: string[]): string | null => {
 };
 
 /** Runs one tool. Returns text for the tool_result, and a short label for the UI. */
-export async function runTool(name: string, input: Input, index: InventoryIndex, continuityScript: string | null): Promise<{ text: string; label: string; isError?: boolean }> {
-  const inv = index.get();
+export async function runTool(name: string, input: Input, index: InventoryIndex, continuityScript: string | null, scope: SoulScope | null = null): Promise<{ text: string; label: string; isError?: boolean }> {
+  const inv = scopedInventory(index.get(), scope);
+  const outside = (what: string) => ({ text: `${what} is outside ${scope?.name}. This soul only sees ${scope?.name}; ask the main REKA soul about other projects.`, label: `kept to ${scope?.name}`, isError: true });
   const bad = (msg: string, label = name) => ({ text: msg, label, isError: true });
   switch (name) {
     case 'search_inventory': {
@@ -64,12 +81,13 @@ export async function runTool(name: string, input: Input, index: InventoryIndex,
     }
     case 'project_inventory': {
       const e = need(input, ['name']); if (e) return bad(e);
-      const ctx = inventoryContext(inv, [input.name as string], 30_000);
+      const nm = scope && !scope.repos.has((input.name as string).toLowerCase()) ? scope.name : (input.name as string);
+      const ctx = inventoryContext(inv, [nm], 30_000);
       return { label: `opened the inventory of ${input.name}`, text: clip(ctx) };
     }
     case 'list_files': {
       const e = need(input, ['repo']); if (e) return bad(e);
-      const r = findRepo(index, input.repo as string); if (!r) return bad(`No repo named "${input.repo}".`);
+      const r = findRepo(index, input.repo as string, scope); if (!r) return scope ? outside(`"${input.repo}"`) : bad(`No repo named "${input.repo}".`);
       try {
         const { stdout } = await run('git', ['-C', r.path, 'ls-files'], { maxBuffer: 32 * 1024 * 1024 });
         const want = typeof input.contains === 'string' ? (input.contains as string).toLowerCase() : '';
@@ -79,7 +97,7 @@ export async function runTool(name: string, input: Input, index: InventoryIndex,
     }
     case 'search_code': {
       const e = need(input, ['repo', 'text']); if (e) return bad(e);
-      const r = findRepo(index, input.repo as string); if (!r) return bad(`No repo named "${input.repo}".`);
+      const r = findRepo(index, input.repo as string, scope); if (!r) return scope ? outside(`"${input.repo}"`) : bad(`No repo named "${input.repo}".`);
       try {
         const { stdout } = await run('git', ['-C', r.path, 'grep', '-n', '-I', '-F', '--max-count=8', '-e', input.text as string, '--', '.', ':(exclude)*.env*', ':(exclude)*lock*'], { maxBuffer: 16 * 1024 * 1024 });
         const lines = stdout.split('\n').filter(Boolean).map((l) => { const m = /^([^:]+):(\d+):(.*)$/.exec(l); return m ? `${m[1]}:${m[2]}: ${scrub(m[3])}` : scrub(l); });
@@ -88,7 +106,7 @@ export async function runTool(name: string, input: Input, index: InventoryIndex,
     }
     case 'read_file': {
       const e = need(input, ['repo', 'path']); if (e) return bad(e);
-      const r = findRepo(index, input.repo as string); if (!r) return bad(`No repo named "${input.repo}".`);
+      const r = findRepo(index, input.repo as string, scope); if (!r) return scope ? outside(`"${input.repo}"`) : bad(`No repo named "${input.repo}".`);
       const rel = input.path as string;
       if (/(^|[\\/])\.env(\.|$)/i.test(rel) && !/\.env\.(example|sample|template)$/i.test(rel)) return bad('Refused: .env files hold secrets and are never read. Use .env.example for names.', `refused ${rel}`);
       const target = inside(r.path, rel); if (!target) return bad('Path is outside the repo.', `refused ${rel}`);
@@ -103,12 +121,13 @@ export async function runTool(name: string, input: Input, index: InventoryIndex,
     }
     case 'rescan_repo': {
       const e = need(input, ['repo']); if (e) return bad(e);
+      if (scope && !findRepo(index, input.repo as string, scope)) return outside(`"${input.repo}"`);
       const r = await index.rescanOne(input.repo as string);
       return r ? { label: `rescanned ${r.name}`, text: `Rescanned ${r.name}: ${r.facts.length} facts from ${r.filesScanned} files.` } : bad(`No repo named "${input.repo}".`);
     }
     case 'continuity_check': {
       const e = need(input, ['repo']); if (e) return bad(e);
-      const r = findRepo(index, input.repo as string); if (!r) return bad(`No repo named "${input.repo}".`);
+      const r = findRepo(index, input.repo as string, scope); if (!r) return scope ? outside(`"${input.repo}"`) : bad(`No repo named "${input.repo}".`);
       const inRepo = path.join(r.path, 'tools', 'reka-handover-kit', 'tools', 'continuity-check.js');
       const script = (await fs.access(inRepo).then(() => inRepo).catch(() => null)) ?? continuityScript;
       if (!script) return bad('No continuity check found: add the REKA Handover kit to the repo or set SOUL_CONTINUITY_CHECK.');
@@ -122,11 +141,12 @@ export async function runTool(name: string, input: Input, index: InventoryIndex,
     }
     case 'change_report': {
       const days = Math.max(1, Math.min(90, Number(input.days) || 7));
-      return { label: `compared the inventory with ${days} days ago`, text: clip(changeReportMarkdown(diffInventories(await snapshotBefore(days), inv))) };
+      const before = await snapshotBefore(days);
+      return { label: `compared the inventory with ${days} days ago`, text: clip(changeReportMarkdown(diffInventories(before ? scopedInventory(before, scope) : null, inv))) };
     }
     case 'access_register_draft': {
       const e = need(input, ['project']); if (e) return bad(e);
-      const md = accessRegisterDraft(inv, input.project as string);
+      const md = accessRegisterDraft(inv, scope ? scope.name : (input.project as string));
       return md ? { label: `drafted the Access Register for ${input.project}`, text: clip(md) } : bad(`No project or repo named "${input.project}".`);
     }
     case 'rotation_checklist': {

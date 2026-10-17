@@ -136,6 +136,8 @@ export interface ChatTurn {
 export interface AskRequest {
   question: string;
   focusId?: string | null;
+  /** A project soul: answer only about this project (its repos, sessions and inventory). Empty for the main soul. */
+  scope?: string | null;
   history?: ChatTurn[];
 }
 

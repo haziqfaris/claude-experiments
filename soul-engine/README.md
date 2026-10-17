@@ -34,6 +34,13 @@ The hub (`server/`) reads Claude Code's own session transcripts in `~/.claude/pr
 
 The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a cheaper model to `POST /api/delegations`. The dashboard then shows the total saved today in the top bar, the latest hand-offs in the Relay box, and the Soul Engine can answer questions about them. The hub keeps the last 300 reports in memory, so they reset when it restarts.
 
+## Souls: one main soul, one per project
+
+- **Main soul** (`#/`, the landing page): answers across every project. Left, every project as a card (grouped by kind, with repos, live sessions, tokens and cost, key and API counts); right, the most recent activity. Projects orbit the core; click one to open its soul.
+- **Project soul** (`#/p/<project>`): its own colour and shape, its repos orbiting it, and a conversation of its own. It only answers about that project: the hub limits its context, its inventory and every tool to the project's repos, and refuses anything outside them. Left: stats, repos, and the project's Inventory, Changes and Access Register. Right: its sessions, recent files and commits.
+- Projects come from `projects.local.json`. A folder Claude worked in that belongs to no project shows as its own card.
+- The hub takes `?project=<name>` on `/api/inventory` (with or without `q`) and `/api/inventory/changes`.
+
 ## Asking questions
 
 `POST /api/ask` picks the projects your question names, or the focused project, or the most recently active ones. It builds a context block from the stats table, recent prompts and replies, files touched, git state and the first part of `CLAUDE.md`/`README.md`, then streams Claude's answer back.

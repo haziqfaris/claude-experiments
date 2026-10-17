@@ -5,7 +5,7 @@ import type { AskEvent, AskRequest, ChatTurn, Inventory, ProjectDetail, Snapshot
 import { buildContext, offlineAnswer, pickProjects } from './context';
 import { INVENTORY_QUESTION, InventoryIndex, inventoryContext, offlineInventoryAnswer } from './inventory';
 import { estimateCost } from './pricing';
-import { SOUL_TOOLS, runTool } from './tools';
+import { SOUL_TOOLS, runTool, scopedInventory, type SoulScope } from './tools';
 
 const MAX_TOOL_ROUNDS = 10;
 
@@ -64,12 +64,28 @@ export async function ask(
   continuityScript: string | null = null,
 ): Promise<void> {
   const question = req.question.trim().slice(0, 4000);
-  const picked = pickProjects(snap, question, req.focusId);
+  // A project soul: its repos (from the inventory groups) and the Claude Code folders inside them.
+  let scope: SoulScope | null = null;
+  if (req.scope && inventory) {
+    const invAll = inventory;
+    const g = invAll.groups.find((x) => x.name === req.scope);
+    const repos = g ? g.repos.map((id) => invAll.projects.find((p) => p.id === id)).filter((p): p is NonNullable<typeof p> => !!p)
+      : invAll.projects.filter((p) => p.name === req.scope || p.path.toLowerCase().endsWith((req.scope as string).toLowerCase()));
+    scope = { name: req.scope, repos: new Set(repos.map((r) => r.name.toLowerCase())) };
+    (scope as SoulScope & { paths?: Set<string> }).paths = new Set(repos.flatMap((r) => [r.path, ...(r.alsoAt ?? [])]).map((p) => p.toLowerCase()));
+  } else if (req.scope) {
+    scope = { name: req.scope, repos: new Set() };
+  }
+  const scopePaths = (scope as (SoulScope & { paths?: Set<string> }) | null)?.paths;
+  const picked = scope
+    ? snap.projects.filter((p) => scopePaths?.has(p.path.toLowerCase()) || p.name === scope!.name)
+    : pickProjects(snap, question, req.focusId);
+  if (scope && inventory) inventory = scopedInventory(inventory, scope);
   const named = snap.projects.filter((p) => question.toLowerCase().includes(p.name.toLowerCase()));
-  const wantsInventory = !!inventory && inventory.projects.length > 0 && INVENTORY_QUESTION.test(question);
+  const wantsInventory = !!inventory && inventory.projects.length > 0 && (!!scope || INVENTORY_QUESTION.test(question));
   // Named or focused projects get their full inventory; "which projects…" questions get every project's.
   const namedGroups = (inventory?.groups ?? []).filter((g) => g.name.length > 2 && question.toLowerCase().includes(g.name.toLowerCase())).map((g) => g.name);
-  const invScope = namedGroups.length || named.length ? [...namedGroups, ...named.map((p) => p.name)] : req.focusId ? picked.map((p) => p.name) : null;
+  const invScope = scope ? null : namedGroups.length || named.length ? [...namedGroups, ...named.map((p) => p.name)] : req.focusId ? picked.map((p) => p.name) : null;
   const details = (await Promise.all(picked.map((p) => detail(p.id)))).filter((d): d is ProjectDetail => d != null);
 
   const offline = () => {
@@ -104,7 +120,9 @@ ${inventoryContext(inventory, invScope)}
         {
           model: MODEL,
           max_tokens: 16000,
-          system: SYSTEM,
+          system: scope
+            ? [{ type: 'text', text: SYSTEM }, { type: 'text', text: `You are the soul of the project ${scope.name}, not the main REKA soul. Answer only about ${scope.name}: its repos, sessions and inventory, which is all the context and tools give you. If the architect asks about another project or about everything, say that this soul only knows ${scope.name} and that the main REKA soul (the landing page) answers across all projects.` }]
+            : SYSTEM,
           output_config: { effort: EFFORT },
           messages,
           ...(tools ? { tools } : {}),
@@ -148,7 +166,7 @@ ${inventoryContext(inventory, invScope)}
           results.push({ type: 'tool_result', tool_use_id: u.id, is_error: true, content: JSON.stringify({ INVALID_JSON: JSON.stringify(u.input) }) });
           continue;
         }
-        const r = await runTool(u.name, u.input as Record<string, unknown>, index, continuityScript);
+        const r = await runTool(u.name, u.input as Record<string, unknown>, index, continuityScript, scope);
         send({ type: 'tool', label: r.label });
         results.push({ type: 'tool_result', tool_use_id: u.id, content: r.text, ...(r.isError ? { is_error: true } : {}) });
       }

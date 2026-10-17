@@ -1,83 +1,105 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import SoulCore from './components/SoulCore';
 import DataOrbits from './components/DataOrbits';
 import Terminal from './components/Terminal';
-import ProjectsPanel from './components/ProjectsPanel';
-import FocusPanel from './components/FocusPanel';
+import ProjectsDashboard from './components/ProjectsDashboard';
+import { ActivityPanel, ProjectSessionsPanel, ProjectSidePanel } from './components/ProjectPanels';
 import InventoryPanel from './components/InventoryPanel';
 import { SoulMood, Message, OrbitNode, ChatTurn } from './types';
-import { querySoulEngine, useProjectDetail, useSnapshot } from './services/soulService';
+import { querySoulEngine, useInventory, useProjectDetail, useSnapshot } from './services/soulService';
+import { buildProjects, hueOf, MAIN_HUE, seedOf } from './projects';
 import { fmtCost, fmtTokens } from './format';
 import { Activity, ArrowLeftRight, Coins, Database, Flame, Radio } from 'lucide-react';
 
+/** "#/" is the main soul; "#/p/<project>" is that project's soul. */
+const readScope = (): string | null => {
+  const m = /^#\/p\/(.+)$/.exec(window.location.hash);
+  return m ? decodeURIComponent(m[1]) : null;
+};
+
+type InvView = { mode: 'inventory' | 'changes'; register: boolean } | null;
+
 const App: React.FC = () => {
   const { snapshot, link } = useSnapshot();
+  const inventory = useInventory();
+  const [scope, setScope] = useState<string | null>(readScope);
   const [focusId, setFocusId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  // One conversation per soul: '' is the main soul.
+  const [threads, setThreads] = useState<Record<string, Message[]>>({});
   const [isProcessing, setIsProcessing] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [afterglow, setAfterglow] = useState(false);
-  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [invView, setInvView] = useState<InvView>(null);
   const [coreSpend, setCoreSpend] = useState(0);
   const glowTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const projects = snapshot?.projects ?? [];
+  useEffect(() => {
+    const onHash = () => { setScope(readScope()); setInvView(null); };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const openSoul = useCallback((name: string | null) => {
+    window.location.hash = name ? `#/p/${encodeURIComponent(name)}` : '#/';
+  }, []);
+
+  const key = scope ?? '';
+  const messages = threads[key] ?? [];
+  const dash = useMemo(() => buildProjects(snapshot, inventory), [snapshot, inventory]);
+  const current = scope ? dash.find(p => p.name === scope) ?? null : null;
+  const hue = scope ? hueOf(scope) : MAIN_HUE;
+  const seed = scope ? seedOf(scope) : 0;
+
+  const snapProjects = snapshot?.projects ?? [];
   const totals = snapshot?.totals;
-  const shownId = focusId ?? projects[0]?.id ?? null;
-  const detail = useProjectDetail(shownId);
+  const detailId = scope ? current?.activity[0]?.id ?? null : null;
+  const detail = useProjectDetail(detailId);
 
-  // The soul core reads the room: magenta while it analyzes, gold while it speaks,
-  // white just after, teal while any session is live, cyan when all is quiet.
-  const mood = isStreaming
-    ? SoulMood.PROCESSING
-    : isProcessing
-      ? SoulMood.ANALYZING
-      : afterglow
-        ? SoulMood.HARMONIC
-        : (totals?.liveSessions ?? 0) > 0
-          ? SoulMood.CONNECTED
-          : SoulMood.IDLE;
-  const burnLevel = Math.min(0.5, (totals?.burnPerMin ?? 0) / 400_000);
-  const intensity = isProcessing ? 0.8 : Math.round((0.2 + burnLevel) * 20) / 20;
+  // The soul reads the room: magenta while it analyzes, gold while it speaks, white just after,
+  // its own hue while any of its sessions is live, calm when all is quiet.
+  const live = scope ? current?.liveSessions ?? 0 : totals?.liveSessions ?? 0;
+  const mood = isStreaming ? SoulMood.PROCESSING : isProcessing ? SoulMood.ANALYZING : afterglow ? SoulMood.HARMONIC : live > 0 ? SoulMood.CONNECTED : SoulMood.IDLE;
+  // Burn is tracked across all projects only; a project soul glows with its live sessions instead.
+  const burn = scope ? live * 60_000 : totals?.burnPerMin ?? 0;
+  const intensity = isProcessing ? 0.8 : Math.round((0.2 + Math.min(0.5, burn / 400_000)) * 20) / 20;
 
-  // Projects orbit the core; the most recent first.
-  const nodes: OrbitNode[] = useMemo(
-    () =>
-      projects.slice(0, 8).map((p, i) => ({
-        id: p.id,
-        angle: (i * 360) / Math.min(8, projects.length) + i * 17,
-        radius: 1.2 + (i % 4) * 0.3,
-        speed: 0.2 - (i % 4) * 0.04,
-        type: p.status === 'active' ? 'sensor' : p.status === 'recent' ? 'data' : 'interface',
-        label: p.name,
-        value: fmtTokens(p.tokensToday),
-      })),
-    [projects],
-  );
+  // Main soul: its projects orbit it, most recent first. A project soul: its repos.
+  const nodes: OrbitNode[] = useMemo(() => {
+    const ring = <T,>(items: T[], f: (x: T, i: number) => Omit<OrbitNode, 'angle' | 'radius' | 'speed'>) =>
+      items.slice(0, 8).map((x, i) => ({ ...f(x, i), angle: (i * 360) / Math.min(8, items.length) + i * 17, radius: 1.2 + (i % 4) * 0.3, speed: 0.2 - (i % 4) * 0.04 }));
+    if (current) {
+      return ring(current.repos, r => {
+        const act = current.activity.find(a => [r.path, ...(r.alsoAt ?? [])].some(p => p.toLowerCase() === a.path.toLowerCase()));
+        return { id: r.id, type: act?.status === 'active' ? 'sensor' : act ? 'data' : 'interface', label: r.name, value: act ? fmtTokens(act.tokensToday) : `${r.facts.length} facts` };
+      });
+    }
+    if (scope) return [];
+    const ranked = dash.filter(p => p.kind !== 'activity' || p.lastActivity).sort((a, b) => b.lastActivity - a.lastActivity);
+    return ring(ranked, p => ({ id: p.name, type: p.status === 'active' ? 'sensor' : p.status === 'recent' ? 'data' : 'interface', label: p.name, value: fmtTokens(p.tokensToday) }));
+  }, [dash, current, scope]);
 
   const handleSendMessage = useCallback(
     async (text: string) => {
+      const thread = key;
+      const askScope = scope;
+      const setMessages = (f: (prev: Message[]) => Message[]) => setThreads(t => ({ ...t, [thread]: f(t[thread] ?? []) }));
       // "/find <text>" searches the inventory locally: no Claude call, nothing leaves the machine.
       const find = /^\/find\s+(.+)/i.exec(text.trim());
       if (find) {
         setMessages(prev => [...prev, { role: 'user', content: text, timestamp: Date.now() }]);
         let reply = '';
         try {
-          const res = await fetch(`/api/inventory?q=${encodeURIComponent(find[1])}`);
+          const res = await fetch(`/api/inventory?q=${encodeURIComponent(find[1])}${askScope ? `&project=${encodeURIComponent(askScope)}` : ''}`);
           const data = (await res.json()) as { hits: { project: string; fact: { label: string; value: string; evidence: string[] } }[] };
           reply = data.hits.length
             ? data.hits.slice(0, 40).map(h => `• ${h.project} · ${h.fact.label}: ${h.fact.value}${h.fact.evidence[0] ? `  (${h.fact.evidence[0]})` : ''}`).join('\n') + (data.hits.length > 40 ? `\n…and ${data.hits.length - 40} more. Open INVENTORY to see all.` : '')
-            : `No inventory fact matches "${find[1]}".`;
+            : `No inventory fact${askScope ? ` in ${askScope}` : ''} matches "${find[1]}".`;
         } catch {
           reply = 'Resonance lost. The hub is unreachable.';
         }
-        setMessages(prev => [...prev, { role: 'system', content: reply, timestamp: Date.now(), meta: '↳ inventory search · local' }]);
+        setMessages(prev => [...prev, { role: 'system', content: reply, timestamp: Date.now(), meta: `↳ inventory search · local${askScope ? ` · ${askScope} only` : ''}` }]);
         return;
       }
-      const history: ChatTurn[] = messages.map(m => ({
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.content,
-      }));
+      const history: ChatTurn[] = (threads[thread] ?? []).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
       setMessages(prev => [...prev, { role: 'user', content: text, timestamp: Date.now() }]);
       setIsProcessing(true);
       setAfterglow(false);
@@ -107,7 +129,7 @@ const App: React.FC = () => {
         return next;
       });
       try {
-        await querySoulEngine({ question: text, focusId, history }, e => {
+        await querySoulEngine({ question: text, focusId: askScope ? null : focusId, history, scope: askScope }, e => {
           if (e.type === 'tool') {
             steps.push(e.label);
             setSteps();
@@ -118,7 +140,7 @@ const App: React.FC = () => {
             if (u.cost) setCoreSpend(s => s + (u.cost ?? 0));
             setSteps();
           } else if (e.type === 'meta') {
-            const about = e.projects.length ? `echoes from ${e.projects.join(', ')}` : 'echoes from all projects';
+            const about = askScope ? `soul of ${askScope}` : e.projects.length ? `echoes from ${e.projects.join(', ')}` : 'echoes from all projects';
             meta = `↳ ${about} · ${e.offline ? 'offline' : e.model}`;
           } else if (e.type === 'delta') {
             setIsStreaming(true);
@@ -136,33 +158,37 @@ const App: React.FC = () => {
       setAfterglow(true);
       glowTimer.current = setTimeout(() => setAfterglow(false), 5000);
     },
-    [messages, focusId],
+    [threads, key, scope, focusId],
   );
 
   const linkLabel = link === 'online' ? (snapshot?.source === 'demo' ? 'DEMO FEED' : 'LIVE FEED') : link === 'linking' ? 'LINKING…' : 'SIGNAL LOST';
+  const m = scope
+    ? { tokens: current ? fmtTokens(current.tokensToday) : '—', cost: fmtCost(current?.costToday), live: current ? `${current.liveSessions}/${current.sessionCount}` : '—', flux: '—' }
+    : { tokens: totals ? fmtTokens(totals.tokensToday) : '—', cost: fmtCost(totals?.costToday), live: totals ? `${totals.liveSessions}/${totals.sessions}` : '—', flux: totals ? fmtTokens(totals.burnPerMin) : '—' };
 
   return (
     <div className="relative w-screen h-screen bg-reka-dark overflow-hidden font-sans select-none">
 
-      {/* Background Grid/Noise */}
-      <div className="absolute inset-0 z-0 opacity-20"
-           style={{
-               backgroundImage: 'radial-gradient(circle at 50% 50%, #00f2ff 1px, transparent 1px)',
-               backgroundSize: '40px 40px'
-           }}
-      />
+      {/* Background grid, tinted with the soul's hue */}
+      <div className="absolute inset-0 z-0 opacity-20 transition-all duration-700"
+           style={{ backgroundImage: `radial-gradient(circle at 50% 50%, ${hue} 1px, transparent 1px)`, backgroundSize: '40px 40px' }} />
       <div className="absolute inset-0 bg-gradient-to-b from-reka-void via-transparent to-reka-void z-0 pointer-events-none" />
 
-      {/* Main Visualization Layer */}
-      <SoulCore mood={mood} intensity={intensity} />
-      <DataOrbits nodes={nodes} selectedId={focusId} onSelect={id => setFocusId(prev => (prev === id ? null : id))} />
+      {/* The soul: the main REKA soul, or the project's own */}
+      <SoulCore key={key} mood={mood} intensity={intensity} hue={hue} seed={seed} />
+      <DataOrbits nodes={nodes} hue={scope ? hue : undefined} selectedId={scope ? null : focusId}
+        onSelect={id => (scope ? setInvView({ mode: 'inventory', register: false }) : openSoul(id))} />
 
       {/* Top HUD */}
       <div className="absolute top-0 left-0 w-full p-6 flex flex-wrap justify-between items-start gap-4 z-40 pointer-events-none">
-        <div className="glass-panel p-4 rounded-br-2xl border-l-4 border-reka-cyan">
-          <h1 className="text-2xl font-bold tracking-widest text-white neon-text">REKA <span className="text-reka-cyan text-sm font-mono align-top opacity-80">v2.5.0</span></h1>
-          <div className="text-xs text-reka-cyan/60 font-mono mt-1 flex items-center gap-2">
-            SOUL ENGINE INTERFACE
+        <div className="glass-panel p-4 rounded-br-2xl border-l-4 pointer-events-auto" style={{ borderLeftColor: hue }}>
+          <h1 className="text-2xl font-bold tracking-widest text-white neon-text">
+            {scope ? <button type="button" onClick={() => openSoul(null)} className="hover:opacity-80" title="Back to the main soul">REKA</button> : 'REKA'}
+            {scope && <span className="text-lg" style={{ color: hue }}> / {scope}</span>}
+            <span className="text-reka-cyan text-sm font-mono align-top opacity-80"> v2.6.0</span>
+          </h1>
+          <div className="text-xs font-mono mt-1 flex items-center gap-2" style={{ color: `${hue}99` }}>
+            {scope ? 'PROJECT SOUL' : 'MAIN SOUL // ALL PROJECTS'}
             <span className={`inline-flex items-center gap-1 ${link === 'online' ? 'text-reka-teal' : 'text-reka-gold'}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${link === 'online' ? 'bg-reka-teal animate-pulse' : 'bg-reka-gold'}`} />
               {linkLabel}
@@ -171,32 +197,54 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap gap-4 justify-end">
-          <MetricCard label="TOKENS TODAY" value={totals ? fmtTokens(totals.tokensToday) : '—'} icon={<Activity size={14}/>} />
-          <MetricCard label="EST. COST" value={fmtCost(totals?.costToday)} icon={<Coins size={14}/>} />
-          <MetricCard label="LIVE" value={totals ? `${totals.liveSessions}/${totals.sessions}` : '—'} icon={<Radio size={14}/>} className="hidden sm:flex" />
-          <MetricCard label="FLUX/MIN" value={totals ? fmtTokens(totals.burnPerMin) : '—'} icon={<Flame size={14}/>} className="hidden md:flex" />
-          <button type="button" onClick={() => setInventoryOpen(true)} className="glass-panel px-4 py-2 rounded flex flex-col items-end min-w-[100px] pointer-events-auto hover:border-reka-cyan/60 focus:outline-none focus:border-reka-cyan" aria-label="Open the project inventory">
+          <MetricCard label="TOKENS TODAY" value={m.tokens} icon={<Activity size={14}/>} />
+          <MetricCard label="EST. COST" value={m.cost} icon={<Coins size={14}/>} />
+          <MetricCard label="LIVE" value={m.live} icon={<Radio size={14}/>} className="hidden sm:flex" />
+          {!scope && <MetricCard label="FLUX/MIN" value={m.flux} icon={<Flame size={14}/>} className="hidden md:flex" />}
+          <button type="button" onClick={() => setInvView({ mode: 'inventory', register: false })} className="glass-panel px-4 py-2 rounded flex flex-col items-end min-w-[100px] pointer-events-auto hover:border-reka-cyan/60 focus:outline-none focus:border-reka-cyan" aria-label={scope ? `Open the inventory of ${scope}` : 'Open the inventory of all projects'}>
             <div className="flex items-center gap-2 text-reka-cyan/70 text-[10px] font-bold tracking-wider mb-1"><Database size={14}/> INVENTORY</div>
-            <div className="text-xl font-mono text-white neon-text">OPEN</div>
+            <div className="text-xl font-mono text-white neon-text">{scope ? 'PROJECT' : 'ALL'}</div>
           </button>
-          <MetricCard label="SAVED" value={snapshot ? fmtCost(snapshot.relay.savedToday) : '—'} icon={<ArrowLeftRight size={14}/>} className="hidden lg:flex" />
+          {!scope && <MetricCard label="SAVED" value={snapshot ? fmtCost(snapshot.relay.savedToday) : '—'} icon={<ArrowLeftRight size={14}/>} className="hidden lg:flex" />}
         </div>
       </div>
 
-      {snapshot && <ProjectsPanel snapshot={snapshot} focusId={focusId} onFocus={setFocusId} />}
-      <FocusPanel detail={detail} pinned={focusId != null} />
-      <InventoryPanel open={inventoryOpen} onClose={() => setInventoryOpen(false)} onAsk={q => handleSendMessage(q)} />
+      {scope ? (
+        current ? (
+          <>
+            <ProjectSidePanel project={current} onBack={() => openSoul(null)}
+              onInventory={() => setInvView({ mode: 'inventory', register: false })}
+              onChanges={() => setInvView({ mode: 'changes', register: false })}
+              onRegister={() => setInvView({ mode: 'inventory', register: true })} />
+            <ProjectSessionsPanel project={current} detail={detail} />
+          </>
+        ) : (
+          <div className="absolute left-6 top-32 z-40 glass-panel rounded-lg p-4 text-xs font-mono text-gray-400">
+            {inventory ? <>No project named “{scope}”. <button type="button" className="text-reka-cyan underline" onClick={() => openSoul(null)}>Back to the main soul</button></> : 'Loading the project…'}
+          </div>
+        )
+      ) : (
+        <>
+          <ProjectsDashboard projects={dash} snapshot={snapshot} onOpen={openSoul} />
+          <ActivityPanel projects={dash} onOpen={openSoul} />
+        </>
+      )}
 
-      {/* Bottom Interface */}
+      <InventoryPanel open={invView != null} scope={scope} initialMode={invView?.mode} openRegister={invView?.register}
+        onClose={() => setInvView(null)} onAsk={q => handleSendMessage(q)} />
+
+      {/* Bottom interface: talks to the soul on screen */}
       <Terminal
         messages={messages}
         onSendMessage={handleSendMessage}
         isProcessing={isProcessing}
         isStreaming={isStreaming}
-        projects={projects}
+        projects={snapProjects}
         focusId={focusId}
         onFocus={setFocusId}
         coreSpend={coreSpend}
+        scope={scope}
+        hue={hue}
       />
 
     </div>

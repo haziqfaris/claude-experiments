@@ -7,6 +7,12 @@ interface InventoryPanelProps {
   open: boolean;
   onClose: () => void;
   onAsk: (question: string) => void;
+  /** A project soul: show only this project, no project list. */
+  scope?: string | null;
+  /** Open straight on the Changes view. */
+  initialMode?: 'inventory' | 'changes';
+  /** Open the Access Register draft as soon as the panel opens. */
+  openRegister?: boolean;
 }
 
 const CATS: { id: InventoryCategory; label: string; tone: string }[] = [
@@ -52,22 +58,22 @@ const DocModal: React.FC<{ doc: Doc; onClose: () => void; onAsk: (q: string) => 
   );
 };
 
-const ChangesView: React.FC<{ onAsk: (q: string) => void }> = ({ onAsk }) => {
+const ChangesView: React.FC<{ onAsk: (q: string) => void; scope?: string | null }> = ({ onAsk, scope }) => {
   const [days, setDays] = useState(7);
   const [data, setData] = useState<Changes | null>(null);
   useEffect(() => {
     let cancelled = false;
     setData(null);
-    fetch(`/api/inventory/changes?days=${days}`).then(r => r.json()).then(d => { if (!cancelled) setData(d as Changes); }).catch(() => {});
+    fetch(`/api/inventory/changes?days=${days}${scope ? `&project=${encodeURIComponent(scope)}` : ''}`).then(r => r.json()).then(d => { if (!cancelled) setData(d as Changes); }).catch(() => {});
     return () => { cancelled = true; };
-  }, [days]);
+  }, [days, scope]);
   const day = (t: number) => new Date(t).toISOString().slice(0, 10);
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[11px] font-mono text-gray-400">Changes in keys, APIs, services, hosting, domains, addresses, sign-in and jobs over the last</span>
         {[7, 30, 90].map(d => <button key={d} type="button" onClick={() => setDays(d)} aria-pressed={days === d} className={`text-[10px] font-mono uppercase tracking-widest rounded px-2 py-1 border ${days === d ? 'bg-reka-cyan/20 text-white border-reka-cyan' : 'text-gray-400 border-gray-600/40'}`}>{d} days</button>)}
-        <button type="button" onClick={() => onAsk(`Summarize what changed in the last ${days} days across my projects (use change_report) and flag anything risky: new keys, new outside APIs, personal addresses, hosting changes.`)} className="ml-auto flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-reka-magenta border border-reka-magenta/40 bg-reka-magenta/10 rounded px-2 py-1 hover:bg-reka-magenta/20"><MessageSquare size={11} /> Ask the core to review</button>
+        <button type="button" onClick={() => onAsk(`Summarize what changed in the last ${days} days ${scope ? `in ${scope}` : 'across my projects'} (use change_report) and flag anything risky: new keys, new outside APIs, personal addresses, hosting changes.`)} className="ml-auto flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-reka-magenta border border-reka-magenta/40 bg-reka-magenta/10 rounded px-2 py-1 hover:bg-reka-magenta/20"><MessageSquare size={11} /> Ask the core to review</button>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-hide select-text">
         {!data ? <div className="text-xs font-mono text-reka-gold animate-pulse p-2">{'>'} Comparing snapshots…</div>
@@ -98,7 +104,7 @@ function factMatches(group: string, repo: ProjectInventory, f: InventoryFact, wo
   return words.every(w => hay.includes(w));
 }
 
-const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk }) => {
+const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk, scope = null, initialMode = 'inventory', openRegister = false }) => {
   const [inv, setInv] = useState<Inventory | null>(null);
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<InventoryCategory | 'all'>('all');
@@ -121,6 +127,15 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk })
     } catch { /* hub restarting */ }
   };
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setGroupName(scope);
+    setMode(initialMode);
+    setDoc(null);
+    if (scope && openRegister) openDoc('access-register', scope);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, scope, initialMode, openRegister]);
 
   useEffect(() => {
     if (!open) return;
@@ -180,9 +195,9 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk })
     <div className="panel-in fixed inset-x-4 top-28 bottom-6 z-[60] mx-auto max-w-6xl flex flex-col gap-3 glass-panel rounded-lg p-4" style={{ background: 'rgba(4, 8, 17, 0.97)' }} role="dialog" aria-label="Project inventory">
       <div className="flex flex-wrap items-center gap-3 border-b border-reka-cyan/20 pb-2">
         <Database size={14} className="text-reka-cyan" />
-        <span className="text-xs font-mono tracking-widest text-reka-cyan uppercase">Inventory // Projects and repos</span>
+        <span className="text-xs font-mono tracking-widest text-reka-cyan uppercase">Inventory // {scope ?? 'Projects and repos'}</span>
         <span className="text-[10px] font-mono text-gray-400">
-          {inv ? `${inv.groups.length} projects · ${inv.projects.length} repos scanned · ${inv.groups.reduce((n, g) => n + g.missing.length, 0)} not cloned · ${inv.scannedAt ? ago(inv.scannedAt) : '—'}${inv.scanning ? ' · scanning…' : ''}` : 'linking…'}
+          {inv && scope ? `${shown.reduce((n, v) => n + v.repos.length, 0)} repos · ${total} facts · ${inv.scannedAt ? ago(inv.scannedAt) : '—'}${inv.scanning ? ' · scanning…' : ''}` : inv ? `${inv.groups.length} projects · ${inv.projects.length} repos scanned · ${inv.groups.reduce((n, g) => n + g.missing.length, 0)} not cloned · ${inv.scannedAt ? ago(inv.scannedAt) : '—'}${inv.scanning ? ' · scanning…' : ''}` : 'linking…'}
         </span>
         <div className="ml-auto flex items-center gap-2">
           <button type="button" onClick={() => fetch('/api/inventory/rescan', { method: 'POST' }).then(() => setInv(v => (v ? { ...v, scanning: true } : v)))} className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-reka-cyan border border-reka-cyan/30 rounded px-2 py-1 hover:bg-reka-cyan/10"><RefreshCw size={11} className={inv?.scanning ? 'animate-spin' : ''} /> Rescan</button>
@@ -193,7 +208,7 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk })
       </div>
 
       {doc && <DocModal doc={doc} onClose={() => setDoc(null)} onAsk={q2 => { onAsk(q2); setDoc(null); onClose(); }} />}
-      {mode === 'changes' ? <ChangesView onAsk={q2 => { onAsk(q2); onClose(); }} /> : (<>
+      {mode === 'changes' ? <ChangesView scope={scope} onAsk={q2 => { onAsk(q2); onClose(); }} /> : (<>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[220px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-reka-cyan/60" />
@@ -217,7 +232,7 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ open, onClose, onAsk })
 
       <div className="flex-1 min-h-0 flex gap-4">
         {/* projects */}
-        <nav className="w-56 shrink-0 overflow-y-auto scrollbar-hide hidden md:flex flex-col gap-3 border-r border-reka-cyan/10 pr-3" aria-label="Projects">
+        <nav className={`w-56 shrink-0 overflow-y-auto scrollbar-hide ${scope ? 'hidden' : 'hidden md:flex'} flex-col gap-3 border-r border-reka-cyan/10 pr-3`} aria-label="Projects">
           <button type="button" onClick={() => setGroupName(null)} className={`text-left text-[11px] font-mono uppercase tracking-widest px-2 py-1 rounded ${groupName == null ? 'bg-reka-cyan/15 text-white' : 'text-gray-400 hover:text-white'}`}>All projects</button>
           {kinds.map(k => (
             <div key={k} className="flex flex-col gap-0.5">

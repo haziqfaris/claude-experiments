@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AskEvent, AskRequest, ProjectDetail, Snapshot } from '../types';
+import type { AskEvent, AskRequest, Inventory, ProjectDetail, Snapshot } from '../types';
 
 export type LinkState = 'linking' | 'online' | 'lost';
 
@@ -82,4 +82,22 @@ export async function querySoulEngine(
       }
     }
   }
+}
+
+/** The project inventory, refreshed every 15 seconds (it changes only on a scan). */
+export function useInventory(every = 15000): Inventory | null {
+  const [inv, setInv] = useState<Inventory | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch('/api/inventory');
+        if (res.ok && !cancelled) setInv((await res.json()) as Inventory);
+      } catch { /* hub restarting */ }
+    };
+    load();
+    const t = setInterval(load, every);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [every]);
+  return inv;
 }

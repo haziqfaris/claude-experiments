@@ -5,9 +5,19 @@ import { SoulMood } from '../types';
 interface SoulCoreProps {
   mood: SoulMood;
   intensity: number; // 0 to 1
+  /** Resting colour of this soul (the main soul is cyan; each project soul has its own). */
+  hue?: string;
+  /** Shapes the soul: each project gets its own form from its name. 0 is the main soul. */
+  seed?: number;
 }
 
-const SoulCore: React.FC<SoulCoreProps> = ({ mood, intensity }) => {
+/** Same seed, same soul: a small deterministic generator. */
+function rng(seed: number) {
+  let t = seed >>> 0;
+  return () => { t += 0x6d2b79f5; let r = Math.imul(t ^ (t >>> 15), 1 | t); r ^= r + Math.imul(r ^ (r >>> 7), 61 | r); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; };
+}
+
+const SoulCore: React.FC<SoulCoreProps> = ({ mood, intensity, hue = '#00f2ff', seed = 0 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const timeRef = useRef<number>(0);
 
@@ -41,7 +51,11 @@ const SoulCore: React.FC<SoulCoreProps> = ({ mood, intensity }) => {
     feMerge.append("feMergeNode").attr("in", "SourceGraphic");
 
     // Color Logic
-    let coreColor = "#00f2ff"; // Cyan default
+    let coreColor = hue; // this soul's own colour at rest
+    const rand = rng(seed || 1);
+    const form = seed === 0
+      ? { points: 20, a: 3, b: 2, c: 1.5, rings: [140, 180, 240], dash: '5, 15', base: 100 }
+      : { points: 12 + Math.floor(rand() * 18), a: 2 + Math.floor(rand() * 5), b: 1 + Math.floor(rand() * 4), c: 0.8 + rand() * 1.6, rings: [120 + rand() * 40, 170 + rand() * 40, 220 + rand() * 50].slice(0, 2 + Math.floor(rand() * 2)), dash: `${2 + Math.floor(rand() * 8)}, ${6 + Math.floor(rand() * 18)}`, base: 80 + rand() * 30 };
     let secondaryColor = "#050a14";
     
     switch (mood) {
@@ -49,7 +63,7 @@ const SoulCore: React.FC<SoulCoreProps> = ({ mood, intensity }) => {
         coreColor = "#ffd700"; // Gold
         break;
       case SoulMood.CONNECTED:
-        coreColor = "#00ff9d"; // Green/Teal
+        coreColor = seed === 0 ? "#00ff9d" : hue; // live sessions: the main soul turns teal, a project soul glows in its own colour
         break;
       case SoulMood.ANALYZING:
         coreColor = "#ff00ff"; // Magenta
@@ -85,8 +99,8 @@ const SoulCore: React.FC<SoulCoreProps> = ({ mood, intensity }) => {
       .attr("transform", `translate(${width / 2}, ${height / 2})`);
 
     // The Organic Blob
-    const numPoints = 20;
-    const baseRadius = 100;
+    const numPoints = form.points;
+    const baseRadius = form.base;
     const noiseAmplitude = 20 + (intensity * 50);
 
     const path = group.append("path")
@@ -99,7 +113,7 @@ const SoulCore: React.FC<SoulCoreProps> = ({ mood, intensity }) => {
     // Outer Rings
     const ringGroup = group.append("g");
     
-    const ringData = [140, 180, 240];
+    const ringData = form.rings;
     ringGroup.selectAll("circle")
       .data(ringData)
       .enter()
@@ -109,7 +123,7 @@ const SoulCore: React.FC<SoulCoreProps> = ({ mood, intensity }) => {
       .attr("stroke", coreColor)
       .attr("stroke-width", 1)
       .attr("stroke-opacity", 0.3)
-      .attr("stroke-dasharray", "5, 15");
+      .attr("stroke-dasharray", form.dash);
 
     // Animation Loop
     let animationId: number;
@@ -124,7 +138,7 @@ const SoulCore: React.FC<SoulCoreProps> = ({ mood, intensity }) => {
         const angle = i * angleStep;
         
         // Simplex-ish noise using sine waves
-        const noise = Math.sin(angle * 3 + timeRef.current) * Math.cos(angle * 2 - timeRef.current * 0.5) * Math.sin(timeRef.current * 1.5);
+        const noise = Math.sin(angle * form.a + timeRef.current) * Math.cos(angle * form.b - timeRef.current * 0.5) * Math.sin(timeRef.current * form.c);
         const r = baseRadius + (noise * noiseAmplitude);
 
         const x = r * Math.cos(angle);
@@ -149,7 +163,7 @@ const SoulCore: React.FC<SoulCoreProps> = ({ mood, intensity }) => {
     return () => {
       cancelAnimationFrame(animationId);
     };
-  }, [mood, intensity]);
+  }, [mood, intensity, hue, seed]);
 
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">

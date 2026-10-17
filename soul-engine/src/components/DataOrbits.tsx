@@ -4,6 +4,8 @@ import { Activity, Cpu, Radio, Zap } from 'lucide-react';
 
 interface DataOrbitsProps {
   nodes: OrbitNode[];
+  /** Accent of the soul these nodes orbit. */
+  hue?: string;
   selectedId?: string | null;
   onSelect?: (id: string) => void;
 }
@@ -11,7 +13,7 @@ interface DataOrbitsProps {
 // Staggered rings, as a percentage of the orbit container.
 const RINGS = [24, 31, 38, 44];
 
-const DataOrbits: React.FC<DataOrbitsProps> = ({ nodes, selectedId, onSelect }) => {
+const DataOrbits: React.FC<DataOrbitsProps> = ({ nodes, selectedId, onSelect, hue }) => {
   const [rotation, setRotation] = useState(0);
 
   useEffect(() => {
@@ -63,6 +65,7 @@ const DataOrbits: React.FC<DataOrbitsProps> = ({ nodes, selectedId, onSelect }) 
                 />
 
                 <div
+                  style={hue ? { boxShadow: `0 0 12px ${hue}55, inset 0 0 10px ${hue}22`, borderColor: `${hue}66` } : undefined}
                   className={`w-12 h-12 glass-panel rounded-full flex items-center justify-center neon-border group-hover:scale-110 group-focus-visible:scale-110 transition-transform duration-300 bg-reka-dark/80 ${
                     selected ? 'scale-110 ring-2 ring-reka-magenta/70 ring-offset-4 ring-offset-transparent' : ''
                   }`}

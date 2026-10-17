@@ -11,12 +11,15 @@ interface TerminalProps {
   focusId: string | null;
   onFocus: (id: string | null) => void;
   coreSpend?: number;
+  /** A project soul: answers only for this project. Null is the main REKA soul. */
+  scope?: string | null;
+  hue?: string;
 }
 
-const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessing, isStreaming, projects, focusId, onFocus, coreSpend = 0 }) => {
+const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessing, isStreaming, projects, focusId, onFocus, coreSpend = 0, scope = null, hue = '#00f2ff' }) => {
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
-  const focus = projects.find(p => p.id === focusId) ?? null;
+  const focus = scope ? null : projects.find(p => p.id === focusId) ?? null;
   const subject = focus ?? projects[0] ?? null;
 
   useEffect(() => {
@@ -34,7 +37,14 @@ const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessi
     send(input);
   };
 
-  const suggestions = [
+  const suggestions = scope ? [
+    `What was I doing in ${scope}?`,
+    `What should I do next in ${scope}?`,
+    `Which API keys does ${scope} use, and for which API?`,
+    `Where is ${scope} hosted and which e-mail addresses does it send from?`,
+    `Is ${scope} ready to hand over? Run the continuity check.`,
+    '/find key',
+  ] : [
     subject ? `What was I doing in ${subject.name}?` : 'What is happening across my projects?',
     'Which project burned the most tokens today?',
     'Is any session close to its context limit?',
@@ -50,9 +60,9 @@ const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessi
         {/* Header */}
         <div className="flex flex-wrap items-center gap-2 text-reka-cyan border-b border-reka-cyan/20 pb-2">
           <TerminalIcon size={14} />
-          <span className="text-xs font-mono tracking-widest uppercase">Direct Link // Soul Protocol</span>
+          <span className="text-xs font-mono tracking-widest uppercase" style={scope ? { color: hue } : undefined}>{scope ? `Soul of ${scope} // answers for ${scope} only` : 'Main soul // all projects'}</span>
           {coreSpend > 0 && <span className="text-[10px] font-mono text-reka-gold/80" title="Estimated Claude API cost of questions asked in this window">core spend ~${coreSpend.toFixed(3)}</span>}
-          <div className="ml-auto flex items-center gap-2">
+          {!scope && <div className="ml-auto flex items-center gap-2">
             {focus && (
               <button
                 type="button"
@@ -75,7 +85,7 @@ const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessi
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
-          </div>
+          </div>}
         </div>
 
         {/* Message history */}
@@ -83,7 +93,7 @@ const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessi
           {messages.length === 0 && (
             <div className="flex flex-col items-center gap-3 mt-2">
               <div className="text-center text-gray-400 text-xs italic font-mono">
-                Connection established. The Soul Engine is listening, architect. Ask about any project.
+                {scope ? `The soul of ${scope} is listening. It knows only ${scope}: its repos, sessions and inventory.` : 'Connection established. The main soul is listening, architect. Ask about any project, or open one to talk to its own soul.'}
               </div>
               <div className="flex flex-wrap justify-center gap-2">
                 {suggestions.map(s => (
@@ -126,7 +136,7 @@ const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessi
           {isProcessing && !isStreaming && (
             <div className="flex justify-start">
               <div className="text-xs text-reka-gold animate-pulse font-mono">
-                {'>'} Analyzing Resonance Pattern{focus ? ` in ${focus.name}` : ''}...
+                {'>'} Analyzing Resonance Pattern{scope ? ` in ${scope}` : focus ? ` in ${focus.name}` : ''}...
               </div>
             </div>
           )}
@@ -141,7 +151,7 @@ const Terminal: React.FC<TerminalProps> = ({ messages, onSendMessage, isProcessi
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={focus ? `Ask about ${focus.name}…` : 'Ask about any project…'}
+            placeholder={scope ? `Ask the soul of ${scope}…` : focus ? `Ask about ${focus.name}…` : 'Ask the main soul about any project…'}
             autoComplete="off"
             className="w-full bg-reka-dark/50 border border-reka-cyan/30 rounded px-4 py-3 pr-12 text-white font-mono focus:outline-none focus:border-reka-cyan focus:shadow-[0_0_10px_rgba(0,242,255,0.3)] transition-all placeholder-gray-500"
             disabled={isProcessing}

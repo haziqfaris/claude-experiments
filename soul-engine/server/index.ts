@@ -14,6 +14,7 @@ import { TranscriptIndex } from './transcripts';
 import { InventoryIndex, searchInventory } from './inventory';
 import { accessRegisterDraft, rotationChecklist } from './docs';
 import { changeReportMarkdown, diffInventories, maybeWriteWeeklyReport, saveSnapshot, snapshotBefore } from './history';
+import { scopeFor, scopedInventory } from './tools';
 
 const PORT = Number(process.env.SOUL_PORT ?? 7777);
 const HOST = process.env.SOUL_HOST ?? '127.0.0.1';
@@ -125,12 +126,15 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/inventory') {
       if (inventory.stale()) rescan();
       const q = url.searchParams.get('q');
-      return json(res, 200, q ? { scannedAt: inventory.get().scannedAt, hits: searchInventory(inventory.get(), q, 200) } : inventory.get());
+      const inv = scopedInventory(inventory.get(), scopeFor(inventory.get(), url.searchParams.get('project')));
+      return json(res, 200, q ? { scannedAt: inv.scannedAt, hits: searchInventory(inv, q, 200) } : inv);
     }
 
     if (req.method === 'GET' && url.pathname === '/api/inventory/changes') {
       const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 7));
-      const report = diffInventories(await snapshotBefore(days), inventory.get());
+      const scope = scopeFor(inventory.get(), url.searchParams.get('project'));
+      const before = await snapshotBefore(days);
+      const report = diffInventories(before ? scopedInventory(before, scope) : null, scopedInventory(inventory.get(), scope));
       return json(res, 200, { report, markdown: changeReportMarkdown(report) });
     }
 
