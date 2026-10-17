@@ -273,3 +273,39 @@ export interface FlowGraph {
   delegations: Delegation[];
   totals: { liveChats: number; running: number; returnedToday: number; handoffCostToday: number; possibleSaving: number };
 }
+
+// ---- Project status: stage in the REKA Build Flow, tasks left, live and published ----
+
+export interface LiveCheck {
+  url: string;
+  /** Where the address came from: a Cloudflare route, a custom domain, a platform address, or set by you. */
+  source: string;
+  staging: boolean;
+  status: number | null;
+  ok: boolean;
+  ms: number | null;
+  checkedAt: number;
+}
+
+export interface PhaseProgress {
+  name: string;
+  done: number;
+  total: number;
+  file: string;
+}
+
+export interface ProjectStatus {
+  name: string;
+  kind: string;
+  /** Build Flow step 01 to 09, or null when nothing in the repos shows it. */
+  stage: { step: string; name: string; nextGate: string | null; source: 'set' | 'estimated'; evidence: string[] } | null;
+  tasks: { done: number; total: number; files: string[] };
+  phases: PhaseProgress[];
+  live: LiveCheck[];
+  published: { tag: string; date: number; repo: string } | null;
+  lastCommit: { date: number; subject: string; repo: string } | null;
+  commits30d: number;
+  repos: { name: string; branch: string | null; dirty: number; ahead: number | null }[];
+  note: string | null;
+  next: string;
+}

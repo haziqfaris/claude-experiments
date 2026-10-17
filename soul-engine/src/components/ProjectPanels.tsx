@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowLeft, Database, FileText, FolderGit2, GitBranch, History } from 'lucide-react';
-import { ProjectDetail } from '../types';
+import { ProjectDetail, ProjectStatus } from '../types';
 import { DashProject, KIND_LABEL, hueOf } from '../projects';
 import { ago, fmtCost, fmtTokens, shortModel } from '../format';
 
@@ -42,10 +42,11 @@ interface ProjectSideProps {
   onInventory: () => void;
   onChanges: () => void;
   onRegister: () => void;
+  status?: ProjectStatus | null;
 }
 
 /** Project soul, left: the project at a glance, its repos, and what you can open. */
-export const ProjectSidePanel: React.FC<ProjectSideProps> = ({ project: p, onBack, onInventory, onChanges, onRegister }) => {
+export const ProjectSidePanel: React.FC<ProjectSideProps> = ({ project: p, onBack, onInventory, onChanges, onRegister, status }) => {
   const hue = hueOf(p.name);
   const btn = 'flex items-center gap-2 text-[11px] font-mono uppercase tracking-widest rounded px-3 py-2 border hover:bg-white/5';
   return (
@@ -55,6 +56,22 @@ export const ProjectSidePanel: React.FC<ProjectSideProps> = ({ project: p, onBac
         <h2 className="text-lg font-bold tracking-wider mt-1" style={{ color: hue, textShadow: `0 0 8px ${hue}88` }}>{p.name}</h2>
         <div className="text-[10px] font-mono uppercase tracking-widest text-gray-400">{KIND_LABEL[p.kind] ?? p.kind}</div>
       </div>
+      {status && (
+        <div className="flex flex-col gap-1 rounded border px-2.5 py-2" style={{ borderColor: `${hue}33` }}>
+          <div className="text-[10px] font-mono tracking-widest text-reka-cyan/60 uppercase">Stage</div>
+          <div className="text-xs font-mono" style={{ color: hue }}>
+            {status.stage ? `${status.stage.step} ${status.stage.name}` : 'unknown'}
+            <span className="text-gray-500">{status.stage ? ` · ${status.stage.source === 'set' ? 'set by you' : 'estimated'}` : ''}</span>
+          </div>
+          <div className="text-[11px] font-mono text-gray-300">
+            {status.tasks.total ? `${status.tasks.total - status.tasks.done} of ${status.tasks.total} tasks left` : 'no task list found'}
+            {' · '}
+            {status.live.some(l => l.ok && !l.staging) ? <span className="text-reka-teal">live</span> : status.live.length ? <span className="text-[#ff8c8c]">not answering</span> : 'no live address'}
+            {status.published ? ` · ${status.published.tag}` : ''}
+          </div>
+          <div className="text-[10px] font-mono text-gray-400">{status.next}</div>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Stat label="Tokens today" value={fmtTokens(p.tokensToday)} hue={hue} />
         <Stat label="Cost today" value={fmtCost(p.costToday)} hue={hue} />

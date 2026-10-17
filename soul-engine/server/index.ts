@@ -17,6 +17,7 @@ import { changeReportMarkdown, diffInventories, maybeWriteWeeklyReport, saveSnap
 import { scopeFor, scopedInventory } from './tools';
 import { inventoryContext } from './inventory';
 import { routePlan, routesMarkdown, suggestRoutes } from './routes';
+import { projectStatus, statusMarkdown } from './status';
 import type { FlowGraph, Inventory } from '../src/types';
 
 /** The project (a group in projects.local.json) a folder belongs to, by repo path. */
@@ -193,6 +194,15 @@ const server = http.createServer(async (req, res) => {
     // ---- Relay and the soul's tools (called by the soul-relay plugin inside Claude Code) ----
     if (req.method === 'GET' && url.pathname === '/api/flow') return json(res, 200, flowGraph());
     if (req.method === 'GET' && url.pathname === '/api/config') return json(res, 200, { ask: askUsesApi() ? 'api' : 'subscription' });
+
+    if (req.method === 'GET' && url.pathname === '/api/status') {
+      return json(res, 200, await projectStatus(inventory.get(), url.searchParams.get('refresh') === '1'));
+    }
+    if (req.method === 'GET' && url.pathname === '/api/soul/status') {
+      const all = await projectStatus(inventory.get());
+      const p = url.searchParams.get('project');
+      return json(res, 200, { text: statusMarkdown(p ? all.filter((s) => s.name === p) : all) });
+    }
 
     if (req.method === 'GET' && url.pathname === '/api/soul/scope') {
       return json(res, 200, { project: projectOf(inventory.get(), url.searchParams.get('cwd') ?? '') });

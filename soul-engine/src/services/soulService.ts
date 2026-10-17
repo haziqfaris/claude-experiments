@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AskEvent, AskRequest, FlowGraph, Inventory, ProjectDetail, Snapshot } from '../types';
+import type { AskEvent, AskRequest, FlowGraph, Inventory, ProjectDetail, ProjectStatus, Snapshot } from '../types';
 
 export type LinkState = 'linking' | 'online' | 'lost';
 
@@ -118,4 +118,23 @@ export function useFlow(every = 4000): FlowGraph | null {
     return () => { cancelled = true; clearInterval(t); };
   }, [every]);
   return flow;
+}
+
+/** Project status (stage, tasks, live, published). The hub caches it for five minutes. */
+export function useStatus(every = 60000): { status: ProjectStatus[] | null; refresh: () => void } {
+  const [status, setStatus] = useState<ProjectStatus[] | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async (force = false) => {
+      try {
+        const res = await fetch(`/api/status${force ? '?refresh=1' : ''}`);
+        if (res.ok && !cancelled) setStatus((await res.json()) as ProjectStatus[]);
+      } catch { /* hub restarting */ }
+    };
+    load(tick > 0);
+    const t = setInterval(() => load(), every);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [every, tick]);
+  return { status, refresh: () => setTick(n => n + 1) };
 }

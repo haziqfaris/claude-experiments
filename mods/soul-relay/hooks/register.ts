@@ -221,6 +221,11 @@ const SOUL_TOOLS: { name: string; description: string; properties: Record<string
     properties: {},
   },
   {
+    name: 'soul_status',
+    description: 'Where each project is in the REKA Build Flow (steps 01 to 09, estimated from its repos unless set), tasks and phases left, whether its addresses are live, the latest release tag, and the next step. Defaults to every project; pass `project` for one, or "this" for this chat\'s project.',
+    properties: { project: { type: 'string', description: 'A project name, or "this"; omit for every project' } },
+  },
+  {
     name: 'soul_overview',
     description: 'What every live Claude Code chat on this machine is doing right now, which hand-offs are running, and routing suggestions (cheaper models, fresh chats, chats clashing in one folder).',
     properties: {},
@@ -255,6 +260,8 @@ async function runSoulTool($: Engine, name: string, input: Record<string, unknow
     }
     case 'soul_overview':
       return soulText($, '/api/soul/overview')
+    case 'soul_status':
+      return soulText($, `/api/soul/status?${q({ project: input.project === 'this' ? S.project?.name ?? null : typeof input.project === 'string' && input.project !== 'all' ? input.project : null })}`)
     case 'soul_changes':
       return soulText($, `/api/inventory/changes?${q({ days: Number(input.days) || 7, project: asked })}`)
     case 'soul_access_register':

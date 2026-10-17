@@ -28,6 +28,7 @@ When the Soul Engine hub is running (see [soul-engine](../../soul-engine/README.
 | `/soul <question>` | Hands this project's inventory to the chat, which answers here |
 | "Which API keys does this project use?" | Claude calls `soul_inventory` (keys by name and the API each calls, never secret values) |
 | "What changed this week?", "Draft the Access Register", "What breaks if I rotate RESEND_API_KEY?" | `soul_changes`, `soul_access_register`, `soul_rotation_checklist` |
+| "Where is each project? Is it live? How much is left?" | `soul_status` (Build Flow stage, tasks and phases left, live checks, latest release) |
 | "What are my other chats doing?" | `soul_overview` |
 | The chat writes a plan (plan mode or a to-do list) | The soul suggests a model and a chat for each step, shown in the status line and a toast |
 | `/soul-routes` | Shows those suggestions, with an instruction to paste for each step |

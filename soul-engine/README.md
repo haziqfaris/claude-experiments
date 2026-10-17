@@ -41,6 +41,23 @@ The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a ch
 
 `GET /api/config` reports which one is active.
 
+## Status: where every project is
+
+The **STATUS** button (`#/status`) shows every project in one table:
+
+- **Stage** in the REKA Build Flow (01 Spot to 09 Grow), estimated from each repo's documents and history: a spec or build plan (04 to 05), sustained commits or ticked tasks (07 Build), a test or release pack, or a finished task list with a tag (08 Deliver), a Delivery Pack with a live address (09 Grow). Steps 01 to 03 happen before a repo exists, so set them yourself.
+- **Left**: open checkboxes, and phases not finished, in `PROGRESS.md`, `ROADMAP.md`, `TODO.md`, build plans and `docs/plan/` (headings such as "Phase 2" or "Milestone" group the tasks).
+- **Live**: one GET to each address the repo deploys to (Cloudflare routes, custom domains, platform addresses, Fly.io apps), cached for ten minutes. A sign-in page (401/403) counts as live.
+- **Published**: the latest release tag. **Next**: the most useful next step (a site that stopped answering, the tasks left in the current phase, or the next gate).
+
+Set anything the repos can't show in `projects.local.json`:
+
+```json
+"PLExyz": { "kind": "product", "repos": ["plexyz-grid"], "status": { "stage": "08", "live": ["grid.example.com"], "note": "UAT with the client" } }
+```
+
+The same is available as `GET /api/status` (`?refresh=1` to recheck now), as text at `/api/soul/status`, and in Claude Code through the `soul_status` tool ("where is each project?").
+
 ## Relay: what each chat is doing
 
 `GET /api/flow` reads every chat from the last 24 hours from its transcript: its model, what it is doing now, its latest plan (plan mode or a to-do list), and every hand-off it made (sub-agents, `delegate` calls, workflows) with the model, cost and whether it returned. For each plan it suggests a model and a chat per step, using rules in `server/routes.ts`. It also flags read-only sub-agents run on Opus, long runs of mechanical tool calls, chats with a nearly full context, and two chats working in one folder. Suggestions only; nothing is sent.
