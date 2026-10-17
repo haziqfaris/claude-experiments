@@ -226,6 +226,11 @@ const SOUL_TOOLS: { name: string; description: string; properties: Record<string
     properties: { project: { type: 'string', description: 'A project name, or "this"; omit for every project' } },
   },
   {
+    name: 'soul_roadmap',
+    description: 'A project\'s roadmap as its repo keeps it (docs/ROADMAP.md): horizons (Now, Next, Later), items with their status, owner and date, and the recent commits that changed it. Pass `days` to get what changed instead: items added, removed, finished, moved between horizons, or re-dated. Defaults to this chat\'s project.',
+    properties: { project: { type: 'string', description: 'Omit for this chat\'s project, or "all"' }, days: { type: 'integer', description: 'Show changes over the last N days instead of the roadmap' } },
+  },
+  {
     name: 'soul_overview',
     description: 'What every live Claude Code chat on this machine is doing right now, which hand-offs are running, and routing suggestions (cheaper models, fresh chats, chats clashing in one folder).',
     properties: {},
@@ -260,6 +265,24 @@ async function runSoulTool($: Engine, name: string, input: Record<string, unknow
     }
     case 'soul_overview':
       return soulText($, '/api/soul/overview')
+    case 'soul_roadmap': {
+      const days = Number(input.days) || 0
+      if (!days) return soulText($, `/api/soul/roadmap?${q({ project: asked })}`)
+      const r = await hub<{ firstRun?: boolean; projects?: { project: string; file: string; commits: { ts: number; subject: string }[]; added: { title: string; section: string }[]; removed: { title: string; section: string }[]; changed: { title: string; what: string; from: string; to: string }[] }[]; error?: string }>($, `/api/roadmap/changes?${q({ days, project: asked })}`)
+      if (!r) return HUB_DOWN
+      if (r.error) return r.error
+      const lines: string[] = [`Roadmap changes over the last ${days} days${asked ? ` in ${asked}` : ''}:`]
+      if (r.firstRun) lines.push('(No earlier snapshot yet: only commits to the roadmap files are listed. Snapshots are saved daily while the hub runs.)')
+      for (const p of r.projects ?? []) {
+        lines.push('', `${p.project} (${p.file})`)
+        for (const c of p.commits) lines.push(`- commit ${new Date(c.ts).toISOString().slice(0, 10)}: ${c.subject}`)
+        for (const a of p.added) lines.push(`- added: ${a.title} (${a.section})`)
+        for (const a of p.removed) lines.push(`- removed: ${a.title} (was in ${a.section})`)
+        for (const c of p.changed) lines.push(`- ${c.what}: ${c.title}: ${c.from} → ${c.to}`)
+      }
+      if (!(r.projects ?? []).length) lines.push('No changes.')
+      return lines.join('\n')
+    }
     case 'soul_status':
       return soulText($, `/api/soul/status?${q({ project: input.project === 'this' ? S.project?.name ?? null : typeof input.project === 'string' && input.project !== 'all' ? input.project : null })}`)
     case 'soul_changes':
@@ -475,6 +498,7 @@ export const register: Register = (on, options) => {
     }
     await $.command.register({ name: 'soul', description: "The soul of this chat's project: what it knows, and what to ask", argumentHint: '[question]' })
     await $.command.register({ name: 'soul-routes', description: "Suggested model and chat for each step of this chat's plan" })
+    await $.command.register({ name: 'soul-roadmap', description: "Draft or update this project's roadmap (docs/ROADMAP.md) in the REKA format, from its plans" })
 
     showStatus($)
     return next(e)
@@ -571,6 +595,26 @@ export const register: Register = (on, options) => {
     await refreshRoutes($)
     const text = S.plan.text || (await soulText($, `/api/soul/plan?${q({ session: S.sessionId })}`))
     return { text, context: S.plan.routes.length ? [`The user looked at the soul's suggested routes for the plan:\n${text}\nThey are suggestions; only act on them if the user asks.`] : undefined }
+  })
+
+  // Each project writes its own roadmap; the soul hands this chat the format and what it has now.
+  on('command.run', { command: 'soul-roadmap' }, async $ => {
+    const name = S.project?.name ?? null
+    const [template, current] = await Promise.all([
+      soulText($, '/api/soul/roadmap-template'),
+      name ? soulText($, `/api/soul/roadmap?${q({ project: name })}`) : Promise.resolve('This folder is not in a project in projects.local.json.'),
+    ])
+    if (template === HUB_DOWN) return { text: HUB_DOWN }
+    return {
+      text: `◉ Roadmap for ${name ?? 'this repo'}: the format and what the soul sees now are in this chat. Ask Claude to draft or update docs/ROADMAP.md.`,
+      context: [
+        `The user wants ${name ? `the ${name}` : 'this'} project's roadmap written or updated as docs/ROADMAP.md in the repo, in the REKA roadmap format below. ` +
+          'Build it from the project\'s own plans, build plans, PROGRESS.md, readiness verdicts and open issues (read them), not from memory. ' +
+          'Keep existing item IDs; never reuse an ID. Put each item under Now, Next or Later with a status (Planned, In progress, Blocked or Needs decision, Done with the date). ' +
+          'Show the draft and ask before writing the file; then commit it with a message that says what changed and why.\n\n' +
+          `REKA roadmap format:\n${template}\n\nWhat the Soul Engine reads for this project now:\n${current}`,
+      ],
+    }
   })
 
   on('command.run', { command: 'soul' }, async ($, e) => {

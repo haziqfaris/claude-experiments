@@ -18,6 +18,7 @@ import { scopeFor, scopedInventory } from './tools';
 import { inventoryContext } from './inventory';
 import { routePlan, routesMarkdown, suggestRoutes } from './routes';
 import { projectStatus, statusMarkdown } from './status';
+import { roadmapChanges, roadmapMarkdown } from './roadmap';
 import type { FlowGraph, Inventory } from '../src/types';
 
 /** The project (a group in projects.local.json) a folder belongs to, by repo path. */
@@ -202,6 +203,23 @@ const server = http.createServer(async (req, res) => {
       const all = await projectStatus(inventory.get());
       const p = url.searchParams.get('project');
       return json(res, 200, { text: statusMarkdown(p ? all.filter((s) => s.name === p) : all) });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/roadmap/changes') {
+      const days = Math.max(1, Math.min(180, Number(url.searchParams.get('days')) || 30));
+      const p = url.searchParams.get('project');
+      const all = (await projectStatus(inventory.get())).filter((s) => !p || s.name === p);
+      return json(res, 200, await roadmapChanges(all.map((s) => ({ project: s.name, roadmap: s.roadmap })), days));
+    }
+    if (req.method === 'GET' && url.pathname === '/api/soul/roadmap-template') {
+      const file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../templates/ROADMAP.md');
+      return json(res, 200, { text: await fs.readFile(file, 'utf8').catch(() => '') });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/soul/roadmap') {
+      const p = url.searchParams.get('project');
+      const all = await projectStatus(inventory.get());
+      const list = p ? all.filter((s) => s.name === p) : all;
+      return json(res, 200, { text: list.length ? list.map((s) => roadmapMarkdown(s.name, s.roadmap)).join('\n\n') : `No project named "${p}".` });
     }
 
     if (req.method === 'GET' && url.pathname === '/api/soul/scope') {

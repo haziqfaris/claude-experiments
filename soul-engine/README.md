@@ -47,13 +47,15 @@ The **STATUS** button (`#/status`) shows every project in one table:
 
 - **Stage** in the REKA Build Flow (01 Spot to 09 Grow), estimated from each repo's documents and history: a spec or build plan (04 to 05), sustained commits or ticked tasks (07 Build), a test or release pack, or a finished task list with a tag (08 Deliver), a Delivery Pack with a live address (09 Grow). Steps 01 to 03 happen before a repo exists, so set them yourself.
 - **Left**: open checkboxes, and phases not finished, in `PROGRESS.md`, `ROADMAP.md`, `TODO.md`, build plans and `docs/plan/` (headings such as "Phase 2" or "Milestone" group the tasks).
-- **Live**: one GET to each address the repo deploys to (Cloudflare routes, custom domains, platform addresses, Fly.io apps), cached for ten minutes. A sign-in page (401/403) counts as live.
+- **Readiness**, on seven rungs: not live, up but not the app, preview, internal testing, pilot / UAT, ready to use, in use. Your own readiness verdicts come first (files under `readiness/` or `docs/readiness/`, or named like `*READINESS*.md`, with a "Decision:" or "Verdict" line); otherwise the stage decides. The live check caps it: each address the repo deploys to (Cloudflare routes, custom domains, platform addresses, Fly.io apps) gets one GET, cached for ten minutes, and the page is read as the app, a sign-in page, a placeholder or an error page. "Up" alone is never "ready".
 - **Published**: the latest release tag. **Next**: the most useful next step (a site that stopped answering, the tasks left in the current phase, or the next gate).
+
+**Roadmaps** belong to each project: `docs/ROADMAP.md` in its repo, in the format in [templates/ROADMAP.md](templates/ROADMAP.md) (horizons Now, Next, Later; items with an ID, status, owner and date; Recently done). The Roadmaps tab shows every project's horizons and items; projects without one fall back to their build plan and are listed so they can write one (in that project's Claude Code chat, `/soul-roadmap`). The Roadmap changes tab lists every commit that changed a roadmap, and, from a daily snapshot kept on this machine, which items were added, removed, finished, moved between horizons or re-dated (`GET /api/roadmap/changes?days=30`).
 
 Set anything the repos can't show in `projects.local.json`:
 
 ```json
-"PLExyz": { "kind": "product", "repos": ["plexyz-grid"], "status": { "stage": "08", "live": ["grid.example.com"], "note": "UAT with the client" } }
+"PLExyz": { "kind": "product", "repos": ["plexyz-grid"], "status": { "stage": "08", "readiness": "pilot", "live": ["grid.example.com"], "roadmap": "plexyz-grid/docs/ROADMAP.md", "note": "UAT with the client" } }
 ```
 
 The same is available as `GET /api/status` (`?refresh=1` to recheck now), as text at `/api/soul/status`, and in Claude Code through the `soul_status` tool ("where is each project?").

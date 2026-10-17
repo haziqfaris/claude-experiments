@@ -285,6 +285,8 @@ export interface LiveCheck {
   ok: boolean;
   ms: number | null;
   checkedAt: number;
+  /** What the page is: the app, a sign-in page, a placeholder or an error page. */
+  page: { kind: 'app' | 'sign-in' | 'placeholder' | 'error' | 'none'; title: string | null };
 }
 
 export interface PhaseProgress {
@@ -308,4 +310,70 @@ export interface ProjectStatus {
   repos: { name: string; branch: string | null; dirty: number; ahead: number | null }[];
   note: string | null;
   next: string;
+  readiness: Readiness;
+  roadmap: Roadmap | null;
+}
+
+export type RoadmapItemState = 'done' | 'in progress' | 'blocked' | 'planned';
+
+export interface RoadmapItem {
+  key: string;
+  id: string | null;
+  title: string;
+  state: RoadmapItemState;
+  /** The status as the roadmap writes it ("Needs decision", "Ready", "Done 2026-10-12"). */
+  status: string | null;
+  owner: string | null;
+  due: string | null;
+  section: string;
+}
+
+export interface RoadmapSection {
+  title: string;
+  horizon: 'done' | 'now' | 'next' | 'later' | 'future' | 'step' | 'other';
+  date: string | null;
+  gate: string | null;
+  state: RoadmapItemState;
+  items: RoadmapItem[];
+  order: number;
+}
+
+export interface Roadmap {
+  repo: string;
+  file: string;
+  /** 'roadmap' when the project keeps one; 'plan' when the hub fell back to a build plan. */
+  kind: 'roadmap' | 'plan';
+  title: string | null;
+  sections: RoadmapSection[];
+  updated: number | null;
+  history: { ts: number; hash: string; author: string; subject: string }[];
+  counts: { done: number; inProgress: number; blocked: number; planned: number };
+}
+
+export interface RoadmapChanges {
+  from: number | null;
+  to: number;
+  firstRun: boolean;
+  projects: {
+    project: string;
+    file: string;
+    commits: { ts: number; hash: string; author: string; subject: string }[];
+    added: { title: string; section: string }[];
+    removed: { title: string; section: string }[];
+    changed: { title: string; what: 'state' | 'moved' | 'date'; from: string; to: string }[];
+    gone: boolean;
+  }[];
+}
+
+export type ReadinessLevel = 'not live' | 'up, not the app' | 'preview' | 'internal testing' | 'pilot / UAT' | 'ready to use' | 'in use';
+
+export interface Readiness {
+  level: ReadinessLevel;
+  /** 0 to 6, for the ladder. */
+  rank: number;
+  source: 'set' | 'verdict' | 'stage' | 'live check';
+  why: string;
+  verdict: { text: string; file: string; date: number | null } | null;
+  /** What the project would be at if its live address answered. */
+  wouldBe: ReadinessLevel | null;
 }

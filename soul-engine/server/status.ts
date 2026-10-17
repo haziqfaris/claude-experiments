@@ -6,7 +6,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import type { Inventory, LiveCheck, PhaseProgress, ProjectInventory, ProjectStatus } from '../src/types';
+import type { Inventory, LiveCheck, PhaseProgress, ProjectInventory, ProjectStatus, Readiness, ReadinessLevel, Roadmap } from '../src/types';
+import { readRoadmap, saveRoadmaps } from './roadmap';
 
 const run = promisify(execFile);
 const PROJECTS_FILE = process.env.SOUL_PROJECTS_FILE ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../projects.local.json');
@@ -31,7 +32,7 @@ async function git(dir: string, args: string[]): Promise<string> {
   }
 }
 
-interface Override { stage?: string; live?: string[]; note?: string }
+interface Override { stage?: string; live?: string[]; note?: string; readiness?: string; roadmap?: string }
 async function overrides(): Promise<Record<string, Override>> {
   try {
     const raw = JSON.parse(await fs.readFile(PROJECTS_FILE, 'utf8')) as { projects?: Record<string, { status?: Override }> };
@@ -41,7 +42,7 @@ async function overrides(): Promise<Record<string, Override>> {
   }
 }
 
-const TASK_FILE = /(^|\/)(PROGRESS|ROADMAP|TODO|TASKS|BACKLOG|BUILD[-_ ]?PLAN)[^/]*\.md$|^docs\/plan\/[^/]+\.md$/i;
+const TASK_FILE = /(^|\/)(PROGRESS|ROADMAP|TODO|TASKS|BACKLOG|BUILD[-_ ]?PLAN|IMPLEMENTATION[-_ ]?PLAN)[^/]*\.md$|(^|\/)[^/]*[-_ ](PLAN|TASKS|BACKLOG)[^/]*\.md$|^docs\/plan\/[^/]+\.md$/i;
 const SKIP_FILE = /(^|\/)(node_modules|templates?|kits?|vendor|examples?|\.github)\//i;
 const PHASE = /^#{1,4}\s*(?:\d+[.)]\s*)?((?:phase|stage|milestone|sprint|batch|step)\b[^\n]*)$/i;
 const BOX = /^\s*(?:[-*+]|\d+[.)])\s+\[( |x|X)\]/;
@@ -139,6 +140,60 @@ function estimate(r: RepoFacts, live: boolean): { step: string; evidence: string
   return null;
 }
 
+// ---- Readiness: your own verdicts first, then the stage, capped by what the live check saw ----
+
+const LEVELS: ReadinessLevel[] = ['not live', 'up, not the app', 'preview', 'internal testing', 'pilot / UAT', 'ready to use', 'in use'];
+const READINESS_FILE = /(^|\/)(readiness|docs\/readiness)\/.*\.md$|(^|\/)[^/]*(readiness|go[-_ ]?live|release[-_ ]?decision|launch[-_ ]?decision)[^/]*\.md$/i;
+
+/** The newest readiness verdict written in a repo ("Decision: Hold", "Ready for a supervised pilot"). */
+async function verdictOf(r: RepoFacts): Promise<Readiness['verdict']> {
+  const cands = r.files.filter((f) => READINESS_FILE.test(f) && !SKIP_FILE.test(f) && !/template/i.test(f)).slice(0, 12);
+  const dated = await Promise.all(cands.map(async (f) => ({ f, ts: Number(await git(r.repo.path, ['log', '-1', '--format=%ct', '--', f])) * 1000 })));
+  for (const { f, ts } of dated.sort((a, b) => b.ts - a.ts).slice(0, 5)) {
+    let text = '';
+    try { text = await fs.readFile(path.join(r.repo.path, f), 'utf8'); } catch { continue; }
+    const lines = text.split(/\r?\n/).slice(0, 200);
+    let hit: string | null = null;
+    for (let i = 0; i < lines.length && !hit; i++) {
+      const l = lines[i];
+      if (/^\**\s*(decision|verdict|readiness verdict|overall|ready for)\s*:?\**\s*:/i.test(l) || /^\**(decision|verdict)\**\s*[:—-]/i.test(l)) hit = l;
+      else if (/^#{1,4}\s*(verdict|decision|readiness verdict)\b/i.test(l)) hit = lines.slice(i + 1).find((x) => x.trim()) ?? null;
+    }
+    if (hit && /ready|hold|\bgo\b|no-go|pilot|beta|approved|conditional|launch|production|blocked/i.test(hit)) return { text: hit.replace(/[*_`#|]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200), file: `${r.repo.name}/${f}`, date: ts || null };
+  }
+  return null;
+}
+
+function verdictLevel(text: string): ReadinessLevel {
+  const t = text.toLowerCase();
+  if (/not ready|\bhold\b|no-?go|blocked|internal (development|use|testing) only/.test(t)) return 'internal testing';
+  if (/pilot|beta|uat|supervised|limited|conditional/.test(t)) return 'pilot / UAT';
+  if (/in production|operating|in use|live with/.test(t)) return 'in use';
+  if (/ready for (production|release|launch|go-?live|use)|\bgo\b|approved/.test(t)) return 'ready to use';
+  return 'internal testing';
+}
+
+function readinessOf(stage: string | null, verdict: Readiness['verdict'], live: LiveCheck[], set?: string): Readiness {
+  const lvl = (l: ReadinessLevel) => ({ level: l, rank: LEVELS.indexOf(l) });
+  if (set) {
+    const m = LEVELS.find((l) => l.startsWith(set.toLowerCase().replace(/^uat$|^pilot$/, 'pilot / uat')));
+    if (m) return { ...lvl(m), source: 'set', why: 'set in projects.local.json', verdict, wouldBe: null };
+  }
+  const fromStage: ReadinessLevel = stage === '09' ? 'in use' : stage === '08' ? 'pilot / UAT' : stage === '07' ? 'internal testing' : 'preview';
+  const want = verdict ? verdictLevel(verdict.text) : fromStage;
+  const prod = live.filter((l) => !l.staging);
+  const real = prod.filter((l) => l.ok && (l.page.kind === 'app' || l.page.kind === 'sign-in'));
+  const why = verdict ? `verdict in ${verdict.file}` : stage ? `Build Flow stage ${stage}` : 'no stage found';
+  if (!live.length) return { ...lvl(want), source: verdict ? 'verdict' : 'stage', why: `${why}; no deployed address found`, verdict, wouldBe: null };
+  if (!real.length) {
+    const up = prod.some((l) => l.ok) || live.some((l) => l.ok);
+    const stagingOnly = !prod.length && live.some((l) => l.ok && l.page.kind !== 'placeholder');
+    const l: ReadinessLevel = stagingOnly ? 'preview' : up ? 'up, not the app' : 'not live';
+    return { ...lvl(l), source: 'live check', why: stagingOnly ? 'only a staging address answers' : up ? 'the address answers with a placeholder or error page' : 'no address answers', verdict, wouldBe: want };
+  }
+  return { ...lvl(want), source: verdict ? 'verdict' : 'stage', why, verdict, wouldBe: null };
+}
+
 // ---- Live checks: one GET per deployed address, cached for ten minutes ----
 
 const liveCache = new Map<string, LiveCheck>();
@@ -160,21 +215,38 @@ function addresses(repos: ProjectInventory[]): { url: string; source: string }[]
   return [...out].map(([url, source]) => ({ url, source }));
 }
 
+const PLACEHOLDER = /coming soon|under construction|parked|domain (is )?for sale|default (web )?page|welcome to nginx|it works!|hello,? world|vite \+ react|create next app|there isn'?t a github pages site|deployment(_| )not(_| )found|this page could not be found|no such app|application not found|worker threw exception|error 10\d\d|page not found/i;
+
+/** What the page is: the real app, a sign-in gate, a placeholder or an error page. */
+function pageKind(status: number | null, html: string): LiveCheck['page'] {
+  const title = /<title[^>]*>([^<]{0,140})<\/title>/i.exec(html)?.[1]?.replace(/\s+/g, ' ').trim() || null;
+  if (status == null) return { kind: 'none', title: null };
+  if (status === 401 || status === 403) return { kind: 'sign-in', title };
+  if (status >= 400) return { kind: 'error', title };
+  const text = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ');
+  if (PLACEHOLDER.test(title ?? '') || (PLACEHOLDER.test(text) && text.replace(/<[^>]+>/g, ' ').trim().length < 3000)) return { kind: 'placeholder', title };
+  if (/type=["']?password|sign ?in|log ?in/i.test(title ?? '') || (/type=["']?password/i.test(html) && html.length < 60_000)) return { kind: 'sign-in', title };
+  return { kind: html || status < 300 ? 'app' : 'none', title };
+}
+
 async function check(url: string, source: string): Promise<LiveCheck> {
   const hit = liveCache.get(url);
   if (hit && Date.now() - hit.checkedAt < LIVE_TTL) return { ...hit, source };
   const started = Date.now();
   let status: number | null = null;
+  let body = '';
   try {
-    const res = await fetch(url.startsWith('http') ? url : `https://${url}`, { method: 'GET', redirect: 'follow', signal: AbortSignal.timeout(7000) });
+    const res = await fetch(url.startsWith('http') ? url : `https://${url}`, { method: 'GET', redirect: 'follow', signal: AbortSignal.timeout(7000), headers: { 'user-agent': 'REKA-Soul-Engine status check' } });
     status = res.status;
-    await res.body?.cancel();
+    if (/text\/html/i.test(res.headers.get('content-type') ?? '')) body = (await res.text()).slice(0, 200_000);
+    else await res.body?.cancel();
   } catch { /* unreachable */ }
   // Up means it answered: 2xx/3xx, or 401/403 behind a sign-in.
   const c: LiveCheck = {
     url, source, staging: /staging|preview|dev\./i.test(url), status,
     ok: status != null && (status < 400 || status === 401 || status === 403),
     ms: status != null ? Date.now() - started : null, checkedAt: Date.now(),
+    page: pageKind(status, body),
   };
   liveCache.set(url, c);
   return c;
@@ -193,6 +265,14 @@ function nextStep(s: Omit<ProjectStatus, 'next'>): string {
   const down = prod.filter((l) => !l.ok && (l.source !== 'platform address' || !prod.some((x) => x.ok)));
   if (down.length) return `Check ${down[0].url}: it did not answer${down[0].status ? ` (${down[0].status})` : ''}.`;
   const open = s.tasks.total - s.tasks.done;
+  // The project's own roadmap leads: the first open section and what is left in it.
+  const sec = s.roadmap?.kind !== 'roadmap' ? undefined : s.roadmap.sections.find((x) => x.state !== 'done' && x.items.some((i) => i.state !== 'done'));
+  if (sec) {
+    const open = sec.items.filter((i) => i.state !== 'done');
+    const blocked = open.filter((i) => i.state === 'blocked').length;
+    const first = open.find((i) => i.state !== 'blocked')?.title ?? open[0].title;
+    return `${sec.title.slice(0, 60)}: ${open.length} item${open.length === 1 ? '' : 's'} left${blocked ? `, ${blocked} blocked` : ''} (next: ${first.length > 90 ? `${first.slice(0, 89)}…` : first}).`;
+  }
   const phase = s.phases.find((p) => p.done < p.total);
   if (phase) return `${phase.total - phase.done} task${phase.total - phase.done === 1 ? '' : 's'} left in ${phase.name}.`;
   if (open > 0) return `${open} task${open === 1 ? '' : 's'} left.`;
@@ -219,7 +299,17 @@ export function projectStatus(inv: Inventory, force = false): Promise<ProjectSta
       const o = ov[g.name] ?? {};
       const addrs = [...addresses(repos), ...(o.live ?? []).map((url) => ({ url, source: 'set by you' }))].slice(0, 8);
       const live = await pool(addrs, 4, (a) => check(a.url, a.source));
-      const anyLive = live.some((l) => l.ok && !l.staging);
+      const anyLive = live.some((l) => l.ok && !l.staging && l.page.kind !== 'placeholder');
+      const verdicts = (await Promise.all(facts.map(verdictOf))).filter((v): v is NonNullable<typeof v> => !!v).sort((a, b) => (b.date ?? 0) - (a.date ?? 0));
+      // The roadmap: the one you pinned ("repo/path.md"), else a repo's ROADMAP, else a build plan.
+      const [pinRepo, ...pinPath] = (o.roadmap ?? '').split('/');
+      const order = [...facts].sort((a, b) => Number(b.repo.name === pinRepo) - Number(a.repo.name === pinRepo));
+      let roadmap: Roadmap | null = null;
+      for (const f of order) {
+        const rm = await readRoadmap(f.repo.name, f.repo.path, f.files, f.repo.name === pinRepo ? pinPath.join('/') : null);
+        if (rm && (!roadmap || (roadmap.kind === 'plan' && rm.kind === 'roadmap'))) roadmap = rm;
+        if (roadmap?.kind === 'roadmap') break;
+      }
       const est = facts.map((f) => ({ f, e: estimate(f, anyLive) })).filter((x) => x.e).sort((a, b) => Number(b.e!.step) - Number(a.e!.step))[0];
       const step = o.stage && STEPS[o.stage.padStart(2, '0')] ? o.stage.padStart(2, '0') : est?.e?.step ?? null;
       const tags = facts.filter((f) => f.tag).sort((a, b) => b.tag!.date - a.tag!.date);
@@ -235,10 +325,13 @@ export function projectStatus(inv: Inventory, force = false): Promise<ProjectSta
         commits30d: facts.reduce((n, f) => n + f.commits30d, 0),
         repos: facts.map((f) => ({ name: f.repo.name, branch: f.repo.branch, dirty: f.dirty, ahead: f.ahead })),
         note: o.note ?? null,
+        readiness: readinessOf(o.stage ? o.stage.padStart(2, '0') : est?.e?.step ?? null, verdicts[0] ?? null, live, o.readiness),
+        roadmap,
       };
       return { ...base, next: nextStep(base) };
     });
     cache = { at: Date.now(), data };
+    void saveRoadmaps(data.map((d) => ({ project: d.name, roadmap: d.roadmap }))).catch(() => {});
     return data;
   })().finally(() => { inflight = null; });
   return inflight;
@@ -254,6 +347,8 @@ export function statusMarkdown(list: ProjectStatus[]): string {
       (s.phases.length ? ` · phases ${s.phases.filter((p) => p.done === p.total).length}/${s.phases.length} done` : '') +
       ` · ${live.length ? (live.some((l) => l.ok) ? `live (${live.filter((l) => l.ok).map((l) => l.url).slice(0, 2).join(', ')})` : 'not answering') : 'no live address found'}` +
       (s.published ? ` · published ${s.published.tag}` : '') +
+      ` · readiness: ${s.readiness.level}${s.readiness.verdict ? ` ("${s.readiness.verdict.text.slice(0, 80)}")` : ''}` +
+      (s.roadmap ? ` · roadmap ${s.roadmap.repo}/${s.roadmap.file}: ${s.roadmap.counts.done} done, ${s.roadmap.counts.inProgress + s.roadmap.counts.planned + s.roadmap.counts.blocked} left` : ' · no roadmap') +
       ` · next: ${s.next}`,
     );
   }
