@@ -590,3 +590,31 @@ body { overflow: auto; overflow-x: hidden; background: var(--bg-2); color: var(-
   .xchats { grid-column: 1 / -1; grid-row: 2; }
   .xlegend .dim { margin-left: 0; }
 }
+
+/* ---- Accounts in the inventory ---- */
+.acct-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 4px; font-size: 11px; }
+.acct-prov { font-weight: 500; color: var(--text); padding: 1px 8px; border-radius: var(--r-pill); background: var(--surface-3); }
+.acct-tag { display: inline-flex; gap: 5px; align-items: baseline; padding: 1px 8px; border-radius: var(--r-pill); background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 75%, white); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-tag i { font-style: normal; font-size: 9.5px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.acct-tag.you { background: rgba(179, 157, 255, 0.14); color: #d4c8ff; }
+.acct-none { color: var(--dim); font-style: italic; }
+.acct-strip { margin: 4px 0 10px; padding: 6px 10px 8px; border-radius: 14px; background: var(--surface-2); }
+.acct-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 4px 0; text-align: left; }
+.acct-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr) 56px; gap: 10px; align-items: center; padding: 6px 0; font-size: 12px; border-top: 1px solid var(--outline); }
+.acct-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-row b { font-weight: 600; }
+.you-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--violet); margin-left: 6px; vertical-align: middle; }
+.acct-edit { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; padding: 10px 0; border-top: 1px solid var(--outline); }
+.acct-edit > b { grid-column: 1 / -1; font-weight: 600; }
+.acct-edit label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); }
+.acct-edit input:not([type=checkbox]) { font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface); border: 1px solid var(--outline-2); border-radius: 10px; padding: 7px 10px; }
+.acct-edit input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.acct-edit .acct-all { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; }
+.acct-btns { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.acct-edit p { grid-column: 1 / -1; margin: 0; }
+@media (max-width: 720px) {
+  .acct-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .acct-row > span { grid-column: 1; }
+  .acct-row > button { grid-column: 2; grid-row: 1; }
+  .acct-edit { grid-template-columns: minmax(0, 1fr); }
+}
