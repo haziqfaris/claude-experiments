@@ -87,7 +87,7 @@ export const TodayHUD: React.FC<{ ctx: AppCtx; soul: React.ReactNode; badges: Pa
   const feed = ctx.feed.filter((f) => !ctx.scope || f.project === ctx.scope);
   const [q, setQ] = useState('');
   const t = ctx.snapshot?.totals;
-  const ICONS: Record<FeedItem['kind'], [string, string]> = { split: ['⑂', 'var(--work)'], merge: ['↩', 'var(--done)'], ask: ['?', 'var(--wait)'], commit: ['●', 'var(--muted)'], site: ['!', 'var(--red)'], roadmap: ['▤', 'var(--accent)'] };
+  const ICONS: Record<FeedItem['kind'], [string, string]> = { split: ['⑂', 'var(--work)'], merge: ['↩', 'var(--done)'], ask: ['?', 'var(--wait)'], commit: ['●', 'var(--muted)'], site: ['!', 'var(--red)'], roadmap: ['▤', 'var(--accent)'], you: ['›', 'var(--text)'], reply: ['‹', 'var(--work)'] };
   const row = (c: ChatItem) => (
     <button type="button" className="nowrow" key={c.id} onClick={() => ctx.openChat(c.id)}>
       <span className={`dot ${c.state === 'working' ? 'pulse' : ''}`} style={{ background: c.state === 'waiting' ? 'var(--wait)' : hueOf(c.project) }} />
@@ -107,7 +107,7 @@ export const TodayHUD: React.FC<{ ctx: AppCtx; soul: React.ReactNode; badges: Pa
           {update && <button type="button" className="update-btn" onClick={() => location.reload()}>Updated · Reload</button>}
           <div className="hud-m"><small>Tokens today</small><b>{t ? fmtTokens(t.tokensToday) : '—'}</b></div>
           <div className="hud-m"><small>Est. cost</small><b>{fmtCost(t?.costToday)}</b></div>
-          <div className="hud-m"><small>Chats working</small><b>{working.length} / {chats.length}</b></div>
+          <div className="hud-m" title="Open means active in the last 15 minutes"><small>Chats</small><b>{working.length} working · {chats.filter((c) => c.status !== 'idle').length} open</b></div>
           <button type="button" className="hud-btn" onClick={onSearch} title="Search or jump to (Ctrl+K)" aria-label="Search">{Icon.search}</button>
           <button type="button" className="hud-btn" onClick={onLock} title="Lock (Ctrl+Shift+L)" aria-label="Lock">{Icon.lock}</button>
         </div>
