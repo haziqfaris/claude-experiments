@@ -1,6 +1,7 @@
 // The side panel (a chat or a task), Ctrl+K quick search, the confirm-before-send dialog, and a document viewer.
 import React, { useEffect, useRef, useState } from 'react';
-import type { ChatItem, TaskItem } from '../types';
+import type { ChatItem, OutboxItem, TaskItem } from '../types';
+import { usePoll } from '../services/soulService';
 import { hueOf } from '../projects';
 import { ago, fmtCost } from '../format';
 import { Avatar, chatName, Health, Icon, MODEL_C, modelOf, Progress, recentSplits, SplitBoard, StatePill, Topology } from './ui';
@@ -56,6 +57,7 @@ export const ChatPanel: React.FC<{ c: ChatItem; ctx: AppCtx; topoMode: 'diagram'
         <div className="glass bigtopo-wrap">{topoMode === 'board' ? <SplitBoard chats={[c]} onOpen={() => {}} /> : <div id="bigtopo"><Topology chat={c} big /></div>}</div>
       </>}
 
+      <SentMessages chatId={c.id} />
       {c.lastReply && <><div className="section-h"><h2>Last said</h2></div><div className="glass box small" style={{ whiteSpace: 'pre-wrap' }}>{c.lastReply}</div></>}
       {c.prompt && <><div className="section-h"><h2>Your last ask</h2></div><div className="glass box small muted">“{c.prompt}”</div></>}
     </>
@@ -82,6 +84,31 @@ export const TaskPanel: React.FC<{ t: TaskItem; ctx: AppCtx; onClose: () => void
         </> : <div className="small muted" style={{ marginTop: 6 }}>Runs in the chat that owns it.</div>}
       </div>
       {c && <><div className="section-h"><h2>Chat</h2></div><ChatCard c={c} ctx={ctx} /></>}
+    </>
+  );
+};
+
+/** What you sent into this chat from the dashboard, and what became of each message. */
+const SentMessages: React.FC<{ chatId: string }> = ({ chatId }) => {
+  const all = usePoll<OutboxItem[]>('/api/outbox', 3000) ?? [];
+  const mine = all.filter((m) => m.session === chatId).slice(0, 5);
+  if (!mine.length) return null;
+  const label: Record<OutboxItem['status'], [string, string]> = {
+    queued: ['p-idle', 'waiting for the chat'], delivered: ['p-work', 'collected by the chat'], started: ['p-done', 'started in the chat'], failed: ['p-wait', 'could not start'],
+  };
+  return (
+    <>
+      <div className="section-h"><h2>Messages you sent</h2><span className="tiny muted">from the Soul Engine into this chat</span></div>
+      <div className="glass box">
+        {mine.map((m) => (
+          <div key={m.id} className="side-row">
+            <span className={`pill ${label[m.status][0]}`}>{label[m.status][1]}</span>
+            <div className="small" style={{ minWidth: 0 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.text.split(/\r?\n/).find((l) => l.trim()) ?? m.text}</div>
+              <div className="tiny dim">sent {ago(m.at)} ago{m.startedAt ? ` · started ${ago(m.startedAt)} ago` : ''}{m.reason ? ` · ${m.reason}` : ''}</div></div>
+          </div>
+        ))}
+        {mine[0].status === 'queued' && <div className="tiny dim" style={{ marginTop: 8 }}>The chat picks it up within 5 seconds while its Claude Code window is open and the soul-relay plugin is 0.2.1 or later.</div>}
+      </div>
     </>
   );
 };

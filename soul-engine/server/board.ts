@@ -100,7 +100,7 @@ export function buildTasks(chats: ChatItem[], status: ProjectStatus[], suggestio
 const outbox: OutboxItem[] = [];
 
 export function queueMessage(session: string, text: string): OutboxItem {
-  const item: OutboxItem = { id: randomUUID(), session, text: text.slice(0, 8000), at: Date.now(), status: 'queued', deliveredAt: null };
+  const item: OutboxItem = { id: randomUUID(), session, text: text.slice(0, 8000), at: Date.now(), status: 'queued', deliveredAt: null, startedAt: null, reason: null };
   outbox.push(item);
   if (outbox.length > 200) outbox.splice(0, outbox.length - 200);
   return item;
@@ -115,3 +115,13 @@ export function collectMessages(session: string): OutboxItem[] {
 }
 
 export const outboxList = () => [...outbox].reverse().slice(0, 50);
+
+/** The plugin reports back: the message started as a turn in the chat, or why it could not. */
+export function ackMessage(id: string, ok: boolean, reason: string | null): OutboxItem | null {
+  const m = outbox.find((x) => x.id === id);
+  if (!m) return null;
+  m.status = ok ? 'started' : 'failed';
+  m.startedAt = ok ? Date.now() : null;
+  m.reason = ok ? null : (reason ?? 'unknown reason').slice(0, 300);
+  return m;
+}

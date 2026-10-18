@@ -224,9 +224,9 @@ describe('the soul', () => {
     expect(asked.some(a => a.includes('/api/delegations'))).toBe(false)
   })
 
-  test('a message sent from the dashboard reaches this chat once', async ($, on) => {
+  test('a message sent from the dashboard starts a turn in this chat once, and is acknowledged', async ($, on) => {
     const asked: string[] = []
-    const sends: { to: unknown; text: string }[] = []
+    const submits: string[] = []
     mock.store(on)
     const clock = mock.clock(on)
     engineBottom(on)
@@ -235,9 +235,9 @@ describe('the soul', () => {
     on('session.id', () => ({ value: 'boss-session' }))
     on('session.cwd', () => ({ value: '/work/payments-api' }))
     on('session.start', () => ({ cwd: '/work/payments-api' }))
-    on('session.send', ($, e) => {
-      sends.push({ to: e.to, text: e.text })
-      return { isDelivered: true }
+    on('prompt.submit', ($, e) => {
+      submits.push(e.text)
+      return { text: e.text }
     })
 
     await $.session.start({ source: 'startup', cwd: '/work/payments-api', surface: null } as never)
@@ -245,8 +245,9 @@ describe('the soul', () => {
     await clock.advance(5_000)
 
     expect(asked.filter(a => a.startsWith('GET /api/outbox?session=boss-session')).length).toBe(2)
-    expect(sends).toHaveLength(1)
-    expect(sends[0]!.to).toBe('boss-session')
-    expect(sends[0]!.text).toBe('[Soul Engine] /soul-roadmap please draft the roadmap')
+    expect(submits).toEqual(['[Soul Engine dashboard] /soul-roadmap please draft the roadmap'])
+    const ack = asked.find(a => a.startsWith('POST /api/outbox/ack'))
+    expect(ack).toContain('"id":"m1"')
+    expect(ack).toContain('"ok":true')
   })
 })
