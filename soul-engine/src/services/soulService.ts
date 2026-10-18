@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AskEvent, AskRequest, ChatItem, FeedItem, FlowGraph, TaskItem, Inventory, ProjectDetail, ProjectStatus, Snapshot } from '../types';
+import type { AskEvent, AskRequest, ChatItem, Crossings, FeedItem, FlowGraph, TaskItem, Inventory, ProjectDetail, ProjectStatus, Snapshot } from '../types';
 
 export type LinkState = 'linking' | 'online' | 'lost';
 
@@ -181,6 +181,7 @@ export function usePoll<T>(url: string, every: number): T | null {
 export const useChats = (every = 3000) => usePoll<ChatItem[]>('/api/chats', every);
 export const useFeed = (every = 5000) => usePoll<FeedItem[]>('/api/feed', every);
 export const useTasks = (every = 15000) => usePoll<TaskItem[]>('/api/tasks', every);
+export const useCrossings = (every = 5000) => usePoll<Crossings>('/api/crossings', every);
 
 /** Sends a message into one chat through the outbox; the soul-relay plugin in that chat delivers it. */
 export async function sendToChat(session: string, text: string): Promise<boolean> {

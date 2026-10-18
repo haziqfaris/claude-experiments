@@ -1,7 +1,7 @@
 // v4 data for the dashboard: chats in their projects, the Today feed, one task board, and an outbox for messages
 // you send into a chat. Everything is computed on this machine from transcripts, repos and the status scan.
 import { randomUUID } from 'node:crypto';
-import type { ChatItem, ChatState, FeedItem, FlowChat, FlowSuggestion, OutboxItem, ProjectStatus, TaskItem } from '../src/types';
+import type { ChatItem, ChatState, CrossingAlert, FeedItem, FlowChat, FlowSuggestion, OutboxItem, ProjectStatus, TaskItem } from '../src/types';
 import { routeStep } from './routes';
 
 const WAITING_DAYS = 7;
@@ -35,7 +35,7 @@ export function toChatItems(chats: FlowChat[], projectOf: (cwd: string) => strin
 const kindOf = (s: string) => (/merged|came back|returned/.test(s) ? 'merge' : 'split');
 
 /** What happened recently, newest first: splits and merges, questions waiting, commits, roadmap changes, sites down. */
-export function buildFeed(chats: ChatItem[], status: ProjectStatus[], hours = 24, now = Date.now()): FeedItem[] {
+export function buildFeed(chats: ChatItem[], status: ProjectStatus[], hours = 24, now = Date.now(), crossings: CrossingAlert[] = []): FeedItem[] {
   const since = now - hours * 3_600_000;
   const out: FeedItem[] = [];
   for (const c of chats) {
@@ -59,6 +59,9 @@ export function buildFeed(chats: ChatItem[], status: ProjectStatus[], hours = 24
     for (const h of p.roadmap?.history ?? []) if (h.ts >= since) out.push({ at: h.ts, kind: 'roadmap', text: `Roadmap: ${h.subject}`, project: p.name, chat: null });
     for (const l of p.live) if (!l.ok && !l.staging && l.source !== 'platform address') out.push({ at: l.downSince ?? l.checkedAt, kind: 'site', text: `${l.url} is not answering${l.status ? ` (${l.status})` : ''}. First noticed then; still down at the last check, ${Math.max(0, Math.round((Date.now() - l.checkedAt) / 60000))} min ago`, project: p.name, chat: null });
   }
+  // Crossings: one chat changed a repo another works in.
+  const proj = new Map(chats.map((c) => [c.id, c.project]));
+  for (const x of crossings) if (x.at >= since) out.push({ at: x.at, kind: 'cross', text: `${x.title}. ${x.text}`, project: proj.get(x.to ?? x.from ?? '') ?? null, chat: x.to ?? x.from });
   return out.sort((a, b) => b.at - a.at).slice(0, 60);
 }
 

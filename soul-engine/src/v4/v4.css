@@ -531,3 +531,62 @@ body { overflow: auto; overflow-x: hidden; background: var(--bg-2); color: var(-
 .hp-menu { position: absolute; bottom: 38px; width: min(420px, 92vw); max-height: 50vh; overflow-y: auto; padding: 8px; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--outline-2); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55); z-index: 5; }
 .hp-menu .pgroup { line-height: 1.5; }
 .md ul { list-style: disc; } .md ol { list-style: decimal; } .md li::marker { color: var(--accent); }
+
+/* ---- Crossings: the 3D map of chats and the repos they change, with the alerts beside it ---- */
+.xgrid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+.xstage { overflow: hidden; padding: 0; background: #0b1220; }
+.x3 { position: relative; height: min(68vh, 680px); min-height: 360px; border-radius: var(--r-card) var(--r-card) 0 0; overflow: hidden; }
+.x3 canvas { display: block; }
+.x3-wait { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 13px; }
+.x3-labels { position: absolute; inset: 0; cursor: grab; }
+.x3-labels:active { cursor: grabbing; }
+.x3-label { pointer-events: none; display: grid; justify-items: center; max-width: 220px; text-align: center; padding: 3px 10px 4px; border-radius: 10px; background: rgba(8, 14, 26, 0.72); border: 1px solid var(--outline-2);
+  backdrop-filter: blur(6px); font: 500 11.5px/1.3 var(--sans); color: var(--text); white-space: nowrap; transition: opacity 0.25s, border-color 0.25s; }
+.x3-label b { font-weight: 600; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.x3-label span { font-size: 10px; color: var(--muted); font-weight: 400; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.x3-label i { font-style: normal; }
+.x3-label .warn { color: var(--wait); font-weight: 500; }
+.x3-label .ok { color: var(--work); }
+.x3-label.x3-repo { font-size: 12.5px; border-color: rgba(52, 211, 153, 0.25); }
+.x3-label.x3-hot { border-color: rgba(251, 191, 36, 0.55); box-shadow: 0 0 18px rgba(251, 191, 36, 0.18); }
+.x3-label.x3-chat.x3-quiet { opacity: 0.55; }
+.x3-label.x3-chat.x3-quiet span { display: none; }
+.x3-label.x3-dim { opacity: 0.12; }
+.x3-label.x3-focus { opacity: 1; border-color: var(--accent); box-shadow: 0 0 16px rgba(52, 211, 153, 0.25); z-index: 2; }
+.xlegend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 16px 12px; border-top: 1px solid var(--outline); font-size: 11.5px; color: var(--muted); }
+.xlegend span { display: inline-flex; align-items: center; gap: 6px; }
+.xlegend i { width: 16px; height: 3px; border-radius: 2px; }
+.xlegend i.dash { background: repeating-linear-gradient(90deg, var(--violet) 0 4px, transparent 4px 7px); }
+.xlegend .dim { margin-left: auto; }
+.xside { display: grid; gap: 10px; max-height: calc(min(68vh, 680px) + 46px); overflow: auto; padding-right: 2px; }
+.xtoggle { text-align: left; margin-top: 8px; }
+.xalert { padding: 14px 16px 10px; display: grid; gap: 6px; border-left: 3px solid var(--k); transition: background 0.15s; }
+.xalert.on, .xalert:hover { background: var(--surface-2); }
+.xalert .xk { display: flex; justify-content: space-between; gap: 8px; font-size: 10.5px; font-weight: 500; letter-spacing: 0.02em; color: var(--k); }
+.xalert b { font-weight: 600; font-size: 13px; }
+.xalert p { margin: 0; font-size: 12px; color: var(--muted); }
+.xact { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+.btn.sm { padding: 5px 12px; font-size: 12px; }
+.xchip { cursor: pointer; }
+.xtable { padding: 6px 0; overflow: hidden; }
+.xrow { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(0, 2fr) 60px 70px 64px 130px; gap: 12px; align-items: center; padding: 9px 18px; font-size: 12.5px; }
+.xrow.xh { font-size: 10.5px; color: var(--dim); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+.xrow:not(.xh):hover, .xrow.on { background: var(--surface-2); }
+.xrow + .xrow { border-top: 1px solid var(--outline); }
+.xname { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.xname > span { display: grid; min-width: 0; }
+.xname b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xname small { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xname em { font-style: normal; font-size: 10.5px; padding: 1px 8px; border-radius: var(--r-pill); background: rgba(251, 191, 36, 0.14); color: var(--wait); margin-left: auto; }
+.xchats { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.xchats button { font-size: 11px; padding: 2px 9px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--hue) 14%, transparent); color: color-mix(in srgb, var(--hue) 70%, white); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1100px) { .xgrid { grid-template-columns: minmax(0, 1fr); } .xside { max-height: none; } }
+@media (max-width: 720px) {
+  .x3 { height: 56vh; }
+  .x3-label { font-size: 10px; padding: 2px 7px; max-width: 150px; }
+  .x3-label.x3-chat span { display: none; }
+  .xrow { grid-template-columns: minmax(0, 1fr) auto; }
+  .xrow > :nth-child(n+3):not(:last-child), .xrow.xh { display: none; }
+  .xchats { grid-column: 1 / -1; grid-row: 2; }
+  .xlegend .dim { margin-left: 0; }
+}

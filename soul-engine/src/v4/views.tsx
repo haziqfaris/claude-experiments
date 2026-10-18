@@ -1,14 +1,15 @@
 // The five places of v4: Today (the soul, full page), Chats, Tasks, Projects, Inventory.
 import React, { useMemo, useState } from 'react';
-import type { ChatItem, FeedItem, Inventory, InventoryCategory, InventoryFact, ProjectStatus, Snapshot, TaskItem } from '../types';
+import type { ChatItem, Crossings, FeedItem, Inventory, InventoryCategory, InventoryFact, ProjectStatus, Snapshot, TaskItem } from '../types';
 import { hueOf } from '../projects';
 import { ago, fmtCost, fmtTokens } from '../format';
 import { usePoll } from '../services/soulService';
 import { SoulChat, HomePicker, type SoulMsg } from './soulchat';
+import { liveAlerts } from './crossings';
 import { Avatar, chatName, Health, Icon, MODEL_C, Progress, ReadinessTrack, recentSplits, since, SplitBoard, StageTrack, StatePill, Topology } from './ui';
 
-export type View = 'today' | 'chats' | 'tasks' | 'projects' | 'inventory';
-export const VIEWS: [View, string][] = [['today', 'Today'], ['chats', 'Chats'], ['tasks', 'Tasks'], ['projects', 'Projects'], ['inventory', 'Inventory']];
+export type View = 'today' | 'chats' | 'crossings' | 'tasks' | 'projects' | 'inventory';
+export const VIEWS: [View, string][] = [['today', 'Today'], ['chats', 'Chats'], ['crossings', 'Crossings'], ['tasks', 'Tasks'], ['projects', 'Projects'], ['inventory', 'Inventory']];
 
 export interface AppCtx {
   chats: ChatItem[];
@@ -24,9 +25,14 @@ export interface AppCtx {
   openTask: (id: string) => void;
   askRoadmap: (chatId: string) => void;
   statusOf: (name: string) => ProjectStatus | undefined;
+  crossings: Crossings | null;
+  /** Opens the confirm-then-send dialog for one chat. */
+  sendTo: (chatId: string, title: string, text: string) => void;
 }
 
 const inScope = (ctx: AppCtx, project: string) => !ctx.scope || ctx.scope === project;
+/** The first crossing that asks this chat to act, if any. */
+const crossFor = (ctx: AppCtx, chatId: string) => liveAlerts(ctx.crossings, ctx.chats, null).find((a) => a.level === 'attend' && a.to === chatId);
 const ORDER = { waiting: 0, working: 1, idle: 2 } as const;
 
 // ---- Cards ----
@@ -47,6 +53,7 @@ export const ChatCard: React.FC<{ c: ChatItem; ctx: AppCtx; list?: string[]; sho
         {s ? <Health s={s} /> : <span className="tiny dim">{c.folder}</span>}
         {s && !s.roadmap && <span className="rm-chip none">no roadmap</span>}
         {recentSplits(c).some((a) => a.status === 'running') && <span className="srcpill s-split" style={{ marginLeft: 0 }}>splitting</span>}
+        {crossFor(ctx, c.id) && <button type="button" className="rm-chip none xchip" title={crossFor(ctx, c.id)!.title} onClick={(e) => { e.stopPropagation(); ctx.go('crossings'); }}>⇄ {crossFor(ctx, c.id)!.kind === 'same-time' ? 'another chat is editing here' : 'repo changed: pull'}</button>}
         <span style={{ marginLeft: 'auto' }}>{c.steps.length ? `${done}/${c.steps.length} · ` : ''}{since(c.lastActivity)}</span>
       </footer>
     </article>
@@ -84,10 +91,11 @@ export interface AskState {
 export const TodayHUD: React.FC<{ ctx: AppCtx; soul: React.ReactNode; badges: Partial<Record<View, [number, string]>>; ask: AskState; onSearch: () => void; onLock: () => void; update: boolean }> = ({ ctx, soul, badges, ask, onSearch, onLock, update }) => {
   const chats = ctx.chats.filter((c) => inScope(ctx, c.project));
   const waiting = chats.filter((c) => c.state === 'waiting'), working = chats.filter((c) => c.state === 'working');
+  const crossing = liveAlerts(ctx.crossings, ctx.chats, ctx.scope).filter((a) => a.level === 'attend');
   const feed = ctx.feed.filter((f) => !ctx.scope || f.project === ctx.scope);
   const [q, setQ] = useState('');
   const t = ctx.snapshot?.totals;
-  const ICONS: Record<FeedItem['kind'], [string, string]> = { split: ['⑂', 'var(--work)'], merge: ['↩', 'var(--done)'], ask: ['?', 'var(--wait)'], commit: ['●', 'var(--muted)'], site: ['!', 'var(--red)'], roadmap: ['▤', 'var(--accent)'], you: ['›', 'var(--text)'], reply: ['‹', 'var(--work)'] };
+  const ICONS: Record<FeedItem['kind'], [string, string]> = { split: ['⑂', 'var(--work)'], merge: ['↩', 'var(--done)'], ask: ['?', 'var(--wait)'], commit: ['●', 'var(--muted)'], site: ['!', 'var(--red)'], roadmap: ['▤', 'var(--accent)'], you: ['›', 'var(--text)'], reply: ['‹', 'var(--work)'], cross: ['⇄', 'var(--wait)'] };
   const row = (c: ChatItem) => (
     <button type="button" className="nowrow" key={c.id} onClick={() => ctx.openChat(c.id)}>
       <span className={`dot ${c.state === 'working' ? 'pulse' : ''}`} style={{ background: c.state === 'waiting' ? 'var(--wait)' : hueOf(c.project) }} />
@@ -116,6 +124,11 @@ export const TodayHUD: React.FC<{ ctx: AppCtx; soul: React.ReactNode; badges: Pa
         <div className="label">Happening now</div>
         <div style={{ marginTop: 8 }}>
           {waiting.length > 0 && <><div className="label" style={{ color: 'var(--wait)', marginBottom: 6 }}>Waiting for you · {waiting.length}</div>{waiting.map(row)}</>}
+          {crossing.length > 0 && <><div className="label" style={{ color: 'var(--wait)', margin: '12px 0 6px' }}>Crossings · {crossing.length}</div>{crossing.slice(0, 4).map((a) => (
+            <button type="button" className="nowrow" key={a.id} onClick={() => ctx.go('crossings')}>
+              <span className="dot pulse" style={{ background: 'var(--wait)' }} />
+              <span style={{ minWidth: 0 }}><span className="small" style={{ fontWeight: 500, display: 'block' }}>{a.title}</span><span className="tiny" style={{ color: 'var(--muted)' }}>{a.text}</span></span>
+            </button>))}</>}
           <div className="label" style={{ margin: '12px 0 6px' }}>Working · {working.length}</div>
           {working.length ? working.map(row) : <p className="small dim">No chat is working right now.</p>}
         </div>

@@ -22,6 +22,7 @@ import { roadmapChanges, roadmapMarkdown } from './roadmap';
 import { guard } from './guard';
 import { askHome, askStatus, getHome, setHome } from './home';
 import { ackMessage, buildFeed, buildTasks, collectMessages, outboxList, queueMessage, toChatItems } from './board';
+import { buildCrossings } from './crossings';
 import type { FlowGraph, Inventory } from '../src/types';
 
 /** The project (a group in projects.local.json) a folder belongs to, by repo path. */
@@ -215,13 +216,17 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/flow') return json(res, 200, flowGraph());
 
     // ---- v4: chats in their projects, the Today feed, one task board, messages into a chat ----
-    if (req.method === 'GET' && (url.pathname === '/api/chats' || url.pathname === '/api/feed' || url.pathname === '/api/tasks')) {
+    if (req.method === 'GET' && (url.pathname === '/api/chats' || url.pathname === '/api/feed' || url.pathname === '/api/tasks' || url.pathname === '/api/crossings')) {
       const inv = inventory.get();
       const raw = index.flow(30 * 86_400_000, 80);
       const chats = toChatItems(raw, (cwd) => projectOf(inv, cwd)?.name ?? null);
       if (url.pathname === '/api/chats') return json(res, 200, chats);
       const status = await projectStatus(inv);
-      if (url.pathname === '/api/feed') return json(res, 200, buildFeed(chats, status));
+      if (url.pathname === '/api/crossings' || url.pathname === '/api/feed') {
+        const cross = buildCrossings(chats, index.repoWork(Date.now() - 24 * 3_600_000), inv, status);
+        if (url.pathname === '/api/crossings') return json(res, 200, cross);
+        return json(res, 200, buildFeed(chats, status, 24, Date.now(), cross.alerts));
+      }
       return json(res, 200, buildTasks(chats, status, suggestRoutes(raw.filter((c) => Date.now() - c.lastActivity < 86_400_000))));
     }
     // ---- The soul's home chat: /soul-home sets it; the ask bar asks it; the answer comes back from its transcript ----
