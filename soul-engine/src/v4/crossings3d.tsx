@@ -20,6 +20,8 @@ export interface SceneProps {
   focus: string | null;
   onChat: (id: string) => void;
   onRepo: (id: string | null) => void;
+  /** The chat or repo under the pointer, so the page can say what it is. */
+  onHover?: (id: string | null) => void;
 }
 
 const BG = 0x0b1220;
@@ -42,10 +44,10 @@ interface Pulse { mesh: THREE.Mesh; period: number; off: number; max: number }
 interface Node { id: string; kind: 'chat' | 'repo'; obj: THREE.Object3D; core: THREE.Mesh; label: CSS2DObject; base: number; spin?: THREE.Object3D; breathe: number }
 interface Edge { a: string; b: string; mats: (THREE.Material & { opacity: number })[]; base: number[] }
 
-const Crossings3D: React.FC<SceneProps> = ({ data, chats, focus, onChat, onRepo }) => {
+const Crossings3D: React.FC<SceneProps> = ({ data, chats, focus, onChat, onRepo, onHover }) => {
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<{ build: (d: Crossings, c: ChatItem[]) => void; focus: (id: string | null) => void } | null>(null);
-  const cb = useRef({ onChat, onRepo }); cb.current = { onChat, onRepo };
+  const cb = useRef({ onChat, onRepo, onHover }); cb.current = { onChat, onRepo, onHover };
 
   useEffect(() => {
     const el = host.current!;
@@ -157,7 +159,7 @@ const Crossings3D: React.FC<SceneProps> = ({ data, chats, focus, onChat, onRepo 
         const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 2, 6), new THREE.MeshBasicMaterial({ color: hue, transparent: true, opacity: 0.25 }));
         stem.position.y = -1;
         g.add(core, shell, ring, stem);
-        const flags = [r.branch ? esc(r.branch) : '', r.behind ? `<i class="warn">↓${r.behind} behind</i>` : '', r.ahead ? `↑${r.ahead}` : '', r.dirty ? `${r.dirty} unsaved` : ''].filter(Boolean).join(' · ');
+        const flags = [r.branch ? esc(r.branch) : '', r.behind ? `<i class="warn">${r.behind} behind GitHub</i>` : '', r.ahead ? `${r.ahead} not pushed` : '', r.dirty ? `${r.dirty} files changed` : ''].filter(Boolean).join(' · ');
         const lb = label(`<b>${esc(r.name)}</b><span>${esc(r.project)}${flags ? ` · ${flags}` : ''}</span>`, `x3-repo${r.hot ? ' x3-hot' : ''}`);
         lb.position.set(0, size * 1.9 + 0.35, 0); g.add(lb);
         graph.add(g);
@@ -270,7 +272,7 @@ const Crossings3D: React.FC<SceneProps> = ({ data, chats, focus, onChat, onRepo 
       const h = pick(ev);
       const id = h?.id ?? null;
       labels.domElement.style.cursor = id ? 'pointer' : 'grab';
-      if (id !== hovered) { hovered = id; applyFocus(); }
+      if (id !== hovered) { hovered = id; applyFocus(); cb.current.onHover?.(id); }
     };
     const onDown = (ev: PointerEvent) => { downAt = { x: ev.clientX, y: ev.clientY }; };
     const onUp = (ev: PointerEvent) => {
@@ -279,7 +281,7 @@ const Crossings3D: React.FC<SceneProps> = ({ data, chats, focus, onChat, onRepo 
       if (!h) { cb.current.onRepo(null); return; }
       if (h.kind === 'chat') cb.current.onChat(h.id); else cb.current.onRepo(h.id);
     };
-    const onLeave = () => { if (hovered) { hovered = null; applyFocus(); } };
+    const onLeave = () => { if (hovered) { hovered = null; applyFocus(); cb.current.onHover?.(null); } };
     labels.domElement.addEventListener('pointermove', onMove);
     labels.domElement.addEventListener('pointerdown', onDown);
     labels.domElement.addEventListener('pointerup', onUp);
