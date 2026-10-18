@@ -318,4 +318,32 @@ describe('the soul home', () => {
     await $.command.run({ command: 'soul-split', args: 'off', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as never)
     expect((await compose('claude-opus-5-5', ['Agent'])).sections.map(x => x.id)).not.toContain('soul-relay:auto-split')
   })
+
+  test('auto-split moves Explore to Haiku and general-purpose to Sonnet, only when on and unless a model is named', async ($, on) => {
+    let split = true
+    const ran: Record<string, unknown>[] = []
+    mock.store(on)
+    mock.clock(on)
+    engineBottom(on)
+    on('session.model', () => ({ value: 'claude-opus-5-5' }))
+    on('session.id', () => ({ value: 'boss-session' }))
+    on('session.cwd', () => ({ value: '/work/payments-api' }))
+    on('session.start', () => ({ cwd: '/work/payments-api' }))
+    on('http.fetch', ($, e) => ({ value: { status: 200, ok: true, headers: {}, text: String(e.url).includes('/api/autosplit') ? JSON.stringify({ on: split }) : '{}' } }))
+    on('tool.call', { tool: 'Agent' }, ($, e) => { ran.push(e as unknown as Record<string, unknown>); return { result: 'done' } })
+    const agent = (input: Record<string, unknown>) => $.tool.call({ tool: 'Agent', description: 'audit', prompt: 'look', ...input } as never)
+
+    await $.session.start({ source: 'startup', cwd: '/work/payments-api', surface: null } as never)
+    await agent({ subagent_type: 'Explore' })
+    await agent({ subagent_type: 'general-purpose' })
+    await agent({})
+    await agent({ subagent_type: 'Explore', model: 'opus' })
+    await agent({ subagent_type: 'soul-relay:haiku-worker' })
+    expect(ran.map(r => r.model)).toEqual(['haiku', 'sonnet', 'sonnet', 'opus', undefined])
+
+    split = false
+    await $.command.run({ command: 'soul-split', args: 'off', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as never)
+    await agent({ subagent_type: 'Explore' })
+    expect(ran[ran.length - 1]?.model).toBeUndefined()
+  })
 })
