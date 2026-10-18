@@ -140,14 +140,15 @@ function textOf(content: unknown): string | null {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return null;
   const parts: string[] = [];
+  let attached = false;
   for (const b of content) {
-    if (b && typeof b === 'object' && (b as { type?: string }).type === 'text') {
-      parts.push(String((b as { text?: string }).text ?? ''));
-    } else {
-      return null; // tool results and other blocks are not prompts
-    }
+    const type = b && typeof b === 'object' ? (b as { type?: string }).type : undefined;
+    if (type === 'text') parts.push(String((b as { text?: string }).text ?? ''));
+    else if (type === 'image' || type === 'document') attached = true; // a pasted screenshot or file is still your prompt
+    else return null; // tool results and other blocks are not prompts
   }
-  return parts.join('\n');
+  const text = parts.join('\n').trim();
+  return text || (attached ? '(an image)' : null);
 }
 
 const SECRETISH = /(sk-[a-z0-9-]{8,}|ghp_[a-z0-9]{10,}|eyJ[a-z0-9_-]{10,}|(?:key|token|secret|password)\s*[=:]\s*\S+)/gi;
@@ -599,6 +600,7 @@ export class TranscriptIndex {
         recentTools: m.recentTools.slice(-30), agents,
         name: m.customTitle, goal: m.firstPrompt, lastReply: m.replies[m.replies.length - 1]?.text ?? null, turns: m.turns,
         filesTouched: agg ? agg.files.size : m.files.size, costTotal: sum?.costTotal ?? null, tokensToday: sum?.tokensToday ?? 0,
+        promptAt: m.prompts[m.prompts.length - 1]?.ts ?? null,
       });
     }
     return chats.sort((a, b) => b.lastActivity - a.lastActivity).slice(0, limit);

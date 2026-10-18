@@ -248,6 +248,8 @@ export interface FlowChat {
   filesTouched: number;
   costTotal: number | null;
   tokensToday: number;
+  /** When its last ask was typed. */
+  promptAt: number | null;
 }
 
 export interface FlowSuggestion {
@@ -296,6 +298,8 @@ export interface LiveCheck {
   checkedAt: number;
   /** What the page is: the app, a sign-in page, a placeholder or an error page. */
   page: { kind: 'app' | 'sign-in' | 'placeholder' | 'error' | 'none'; title: string | null };
+  /** First seen not answering (since the hub started), or null when it answers. */
+  downSince: number | null;
 }
 
 export interface PhaseProgress {
@@ -327,6 +331,7 @@ export interface ProjectStatus {
     commits: number;
     commits30d: number;
     lastCommit: { date: number; subject: string } | null;
+    recentCommits: { date: number; subject: string }[];
     tag: { tag: string; date: number } | null;
     tasks: { done: number; total: number };
   }[];
@@ -415,7 +420,7 @@ export interface ChatItem extends FlowChat {
 
 export interface FeedItem {
   at: number;
-  kind: 'split' | 'merge' | 'ask' | 'commit' | 'site' | 'roadmap';
+  kind: 'split' | 'merge' | 'ask' | 'commit' | 'site' | 'roadmap' | 'you' | 'reply';
   text: string;
   project: string | null;
   chat: string | null;

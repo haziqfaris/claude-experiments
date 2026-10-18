@@ -45,12 +45,19 @@ export function buildFeed(chats: ChatItem[], status: ProjectStatus[], hours = 24
       if (a.startedAt >= since) out.push({ at: a.startedAt, kind: 'split', text: `${name} handed “${a.label}” to ${model}${a.agentType ? ` (${a.agentType})` : ''}`, project: c.project, chat: c.id });
       if (a.status === 'returned' && a.endedAt && a.endedAt >= since) out.push({ at: a.endedAt, kind: 'merge', text: `“${a.label}” came back from ${model} and merged into ${name}`, project: c.project, chat: c.id });
     }
-    if (c.state === 'waiting' && c.asked) out.push({ at: c.lastActivity, kind: 'ask', text: `${name} is waiting for you: “${c.asked}”`, project: c.project, chat: c.id });
+    // What you and your chats said in the last day: the last ask, and the last reply (or the question it asked you).
+    const snip = (t: string) => { const l = t.split(/\r?\n/).map((x) => x.replace(/[*`#>|]+/g, '').trim()).find((x) => x.length > 2) ?? t; return l.length > 140 ? `${l.slice(0, 139)}…` : l; };
+    if (c.prompt && c.promptAt && c.promptAt >= since) {
+      const fromSoul = c.prompt.includes('Soul Engine dashboard');
+      out.push({ at: c.promptAt, kind: 'you', text: fromSoul ? `The soul asked ${name} a question for you` : `You asked ${name}: “${snip(c.prompt)}”`, project: c.project, chat: c.id });
+    }
+    if (c.state === 'waiting' && c.asked && c.lastActivity >= since) out.push({ at: c.lastActivity, kind: 'ask', text: `${name} is waiting for you: “${c.asked}”`, project: c.project, chat: c.id });
+    else if (c.lastReply && c.lastActivity >= since && c.phase !== 'working') out.push({ at: c.lastActivity, kind: 'reply', text: `${name} replied: “${snip(c.lastReply)}”`, project: c.project, chat: c.id });
   }
   for (const p of status) {
-    for (const r of p.repos) if (r.lastCommit && r.lastCommit.date >= since) out.push({ at: r.lastCommit.date, kind: 'commit', text: `${r.name}: ${r.lastCommit.subject}`, project: p.name, chat: null });
+    for (const r of p.repos) for (const cm of (r.recentCommits?.length ? r.recentCommits : r.lastCommit ? [r.lastCommit] : [])) if (cm.date >= since) out.push({ at: cm.date, kind: 'commit', text: `${r.name}: ${cm.subject}`, project: p.name, chat: null });
     for (const h of p.roadmap?.history ?? []) if (h.ts >= since) out.push({ at: h.ts, kind: 'roadmap', text: `Roadmap: ${h.subject}`, project: p.name, chat: null });
-    for (const l of p.live) if (!l.ok && !l.staging && l.source !== 'platform address') out.push({ at: l.checkedAt, kind: 'site', text: `${l.url} is not answering${l.status ? ` (${l.status})` : ''}`, project: p.name, chat: null });
+    for (const l of p.live) if (!l.ok && !l.staging && l.source !== 'platform address') out.push({ at: l.downSince ?? l.checkedAt, kind: 'site', text: `${l.url} is not answering${l.status ? ` (${l.status})` : ''}. First noticed then; still down at the last check, ${Math.max(0, Math.round((Date.now() - l.checkedAt) / 60000))} min ago`, project: p.name, chat: null });
   }
   return out.sort((a, b) => b.at - a.at).slice(0, 60);
 }

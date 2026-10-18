@@ -53,6 +53,7 @@ interface RepoFacts {
   commits: number;
   commits30d: number;
   last: { date: number; subject: string } | null;
+  recent: { date: number; subject: string }[];
   tag: { tag: string; date: number } | null;
   dirty: number;
   ahead: number | null;
@@ -64,7 +65,7 @@ interface RepoFacts {
 
 async function readRepo(repo: ProjectInventory): Promise<RepoFacts> {
   const dir = repo.path;
-  const [ls, commits, commits30d, last, tag, porcelain, ahead] = await Promise.all([
+  const [ls, commits, commits30d, last, tag, porcelain, ahead, recent] = await Promise.all([
     git(dir, ['ls-files']),
     git(dir, ['rev-list', '--count', 'HEAD']),
     git(dir, ['rev-list', '--count', '--since=30.days', 'HEAD']),
@@ -72,6 +73,7 @@ async function readRepo(repo: ProjectInventory): Promise<RepoFacts> {
     git(dir, ['describe', '--tags', '--abbrev=0']),
     git(dir, ['status', '--porcelain']),
     git(dir, ['rev-list', '--count', '@{u}..HEAD']),
+    git(dir, ['log', '--since=24.hours', '-n', '15', '--format=%ct%x09%s']),
   ]);
   const files = ls ? ls.split('\n') : [];
   const tagDate = tag ? Number(await git(dir, ['log', '-1', '--format=%ct', tag])) * 1000 : 0;
@@ -82,6 +84,7 @@ async function readRepo(repo: ProjectInventory): Promise<RepoFacts> {
     commits30d: Number(commits30d) || 0,
     last: last ? { date: Number(lt) * 1000, subject: ls2.join('\t').slice(0, 120) } : null,
     tag: tag ? { tag, date: tagDate } : null,
+    recent: recent ? recent.split('\n').map((l) => { const [t, ...sub] = l.split('\t'); return { date: Number(t) * 1000, subject: sub.join('\t').slice(0, 120) }; }) : [],
     dirty: porcelain ? porcelain.split('\n').length : 0,
     ahead: ahead === '' ? null : Number(ahead),
     done: 0, total: 0, taskFiles: [], phases: [],
@@ -197,6 +200,20 @@ function readinessOf(stage: string | null, verdict: Readiness['verdict'], live: 
 // ---- Live checks: one GET per deployed address, cached for ten minutes ----
 
 const liveCache = new Map<string, LiveCheck>();
+
+// When each address was first seen not answering, kept on disk so a hub restart does not reset it to "now".
+const DOWN_FILE = path.join(path.dirname(process.env.SOUL_DATA_DIR ?? path.join(process.env.USERPROFILE ?? process.env.HOME ?? '.', '.claude', 'soul-engine', 'inventory-history')), 'down-since.json');
+let downSince: Record<string, number> | null = null;
+async function downFirst(url: string, ok: boolean): Promise<number | null> {
+  if (!downSince) { try { downSince = JSON.parse(await fs.readFile(DOWN_FILE, 'utf8')) as Record<string, number>; } catch { downSince = {}; } }
+  const before = downSince[url];
+  if (ok) { if (before) { delete downSince[url]; await fs.writeFile(DOWN_FILE, JSON.stringify(downSince)).catch(() => {}); } return null; }
+  if (before) return before;
+  downSince[url] = Date.now();
+  await fs.mkdir(path.dirname(DOWN_FILE), { recursive: true }).catch(() => {});
+  await fs.writeFile(DOWN_FILE, JSON.stringify(downSince)).catch(() => {});
+  return downSince[url];
+}
 const LIVE_TTL = 10 * 60_000;
 
 function addresses(repos: ProjectInventory[]): { url: string; source: string }[] {
@@ -242,7 +259,10 @@ async function check(url: string, source: string): Promise<LiveCheck> {
     else await res.body?.cancel();
   } catch { /* unreachable */ }
   // Up means it answered: 2xx/3xx, or 401/403 behind a sign-in.
+  const ok = status != null && (status < 400 || status === 401 || status === 403);
   const c: LiveCheck = {
+    // When it was first seen not answering (kept across checks), so the dashboard says since when, not "just now".
+    downSince: await downFirst(url, ok),
     url, source, staging: /staging|preview|dev\./i.test(url), status,
     ok: status != null && (status < 400 || status === 401 || status === 403),
     ms: status != null ? Date.now() - started : null, checkedAt: Date.now(),
@@ -329,7 +349,7 @@ export function projectStatus(inv: Inventory, force = false): Promise<ProjectSta
         repos: facts.map((f) => ({
           name: f.repo.name, path: f.repo.path, url: f.repo.repo, branch: f.repo.branch, dirty: f.dirty, ahead: f.ahead,
           step: estimate(f, anyLive)?.step ?? null, commits: f.commits, commits30d: f.commits30d,
-          lastCommit: f.last, tag: f.tag, tasks: { done: f.done, total: f.total },
+          lastCommit: f.last, recentCommits: f.recent, tag: f.tag, tasks: { done: f.done, total: f.total },
         })),
         note: o.note ?? null,
         readiness: readinessOf(o.stage ? o.stage.padStart(2, '0') : est?.e?.step ?? null, verdicts[0] ?? null, live, o.readiness),
