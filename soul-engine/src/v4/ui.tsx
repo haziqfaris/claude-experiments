@@ -18,6 +18,7 @@ export const Icon = {
   tasks: svg(<><rect x="4" y="4" width="16" height="16" rx="4" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></>),
   projects: svg(<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />),
   crossings: svg(<><circle cx="6" cy="7" r="2.5" /><circle cx="18" cy="7" r="2.5" /><circle cx="12" cy="18" r="2.5" /><path d="M8 8.5l2.8 7.4M16 8.5l-2.8 7.4M8.5 7h7" /></>),
+  savings: svg(<><path d="M4 18l5-5 4 3 7-8" /><path d="M15 8h5v5" /></>),
   inventory: svg(<><path d="M4 8l8-4 8 4-8 4z" /><path d="M4 8v8l8 4 8-4V8" /><path d="M12 12v8" /></>),
   search: svg(<><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4" /></>, 17),
   lock: svg(<><rect x="5" y="10.5" width="14" height="9.5" rx="2.5" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" /></>, 16),

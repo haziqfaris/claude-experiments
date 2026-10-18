@@ -129,6 +129,8 @@ const S = {
   // The soul: which project this chat belongs to, and the routes for its latest plan.
   project: null as { name: string; repos: string[] } | null,
   plan: { steps: [] as string[], at: 0, routes: [] as Route[], text: '', dirty: false },
+  // Auto-split: hand mechanical work to cheaper workers without being asked. Switched in the dashboard or with /soul-split.
+  autoSplit: false,
 }
 
 interface Route {
@@ -143,6 +145,7 @@ const ledgerKey = () => `ledger:${S.sessionId}`
 
 function showStatus($: Engine) {
   const parts: string[] = []
+  if (S.autoSplit) parts.push('⑂ auto-split on')
   if (S.workerName) parts.push(`⇄ worker ${S.workerName}${S.tasks.length ? ' · busy' : ''}`)
   if (S.ledger.count) parts.push(`⇄ ${S.ledger.count} delegated · saved ≈ ${fmtUsd(S.ledger.saved)}`)
   if (S.pending.size) parts.push(`${S.pending.size} out`)
@@ -421,6 +424,22 @@ async function becomeWorker($: Engine, wanted: string) {
 }
 
 // ---- Messages you sent from the Soul Engine dashboard into this chat (after confirming there) ----
+// ---- Auto-split: a standing instruction for expensive sessions to hand mechanical work to cheaper workers ----
+const AUTOSPLIT_MS = 30_000
+let autoSplitTimer: Timer | null = null
+export const AUTO_SPLIT_TEXT = `# Auto-split (soul-relay)
+You are running on an expensive model. Keep the hard thinking here: design, decisions, tricky debugging, and checking what workers return. Hand mechanical work to cheaper workers instead of doing it yourself:
+- Searching or reading many files, gathering facts, running commands or tests and summarizing the output, repetitive edits across files, boilerplate: use the Agent tool with subagent_type "soul-relay:haiku-worker".
+- Contained work that needs some judgment (a focused refactor, writing tests, debugging one clear issue): subagent_type "soul-relay:sonnet-worker".
+- Text-only jobs where you can give everything (commit messages, PR descriptions, summaries, rewrites, changelogs): the delegate tool (mcp__soul-relay__delegate).
+Give each worker a complete, self-contained task with file paths and the output you expect. Workers can run in parallel. Do a thing yourself when explaining it would take longer than doing it (a one-line edit, reading one file). Do not use the Explore, general-purpose or Plan agent types for this: they run on your expensive model and save nothing.`
+
+async function refreshAutoSplit($: Engine) {
+  if (!S.hubUrl || !S.sessionId) return
+  const r = await hub<{ on?: boolean }>($, `/api/autosplit?${q({ session: S.sessionId })}`)
+  if (r && typeof r.on === 'boolean' && r.on !== S.autoSplit) { S.autoSplit = r.on; showStatus($) }
+}
+
 const OUTBOX_MS = 5_000
 let outboxTimer: Timer | null = null
 let outboxBusy = false
@@ -469,6 +488,9 @@ export const register: Register = (on, options) => {
     S.sessionId = await $.session.id()
     outboxTimer?.cancel()
     outboxTimer = $.clock.every(OUTBOX_MS, () => { void collectOutbox($) })
+    autoSplitTimer?.cancel()
+    autoSplitTimer = $.clock.every(AUTOSPLIT_MS, () => { void refreshAutoSplit($) })
+    await refreshAutoSplit($)
     S.ledger = ((await $.store.get(ledgerKey())) as Ledger | undefined) ?? S.ledger
 
     await $.tool.register({
@@ -531,6 +553,7 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'soul', description: "The soul of this chat's project: what it knows, and what to ask", argumentHint: '[question]' })
     await $.command.register({ name: 'soul-routes', description: "Suggested model and chat for each step of this chat's plan" })
     await $.command.register({ name: 'soul-roadmap', description: "Draft or update this project's roadmap (docs/ROADMAP.md) in the REKA format, from its plans" })
+    await $.command.register({ name: 'soul-split', description: 'Auto-split: this chat hands mechanical work to cheaper Haiku/Sonnet workers on its own (/soul-split on|off|default)', argumentHint: '[on|off|default]' })
     await $.command.register({ name: 'soul-home', description: "Make this chat the soul's home: questions from the dashboard's ask bar are answered here (/soul-home off to stop)", argumentHint: '[off]' })
 
     showStatus($)
@@ -540,6 +563,8 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     outboxTimer?.cancel()
     outboxTimer = null
+    autoSplitTimer?.cancel()
+    autoSplitTimer = null
     if (S.workerName) await stopWorker($)
     return next(e)
   })
@@ -633,6 +658,29 @@ export const register: Register = (on, options) => {
   })
 
   // The soul's home: the dashboard's ask bar sends its questions to this chat, which answers on its own model.
+  // Only for expensive models that can start sub-agents: workers themselves never get it.
+  on('prompt.compose', async ($, e, next) => {
+    const r = await next(e)
+    if (!S.autoSplit || !/opus|fable/i.test(e.model) || !e.tools.some((t) => t === 'Agent' || t === 'Task')) return r
+    return { sections: [...r.sections, { id: 'soul-relay:auto-split', text: AUTO_SPLIT_TEXT, scope: 'session' as const }] }
+  })
+
+  on('command.run', { command: 'soul-split' }, async ($, e) => {
+    const arg = e.args.trim().toLowerCase()
+    if (arg === 'on' || arg === 'off' || arg === 'default') {
+      const r = await hub<{ on?: boolean; error?: string }>($, '/api/autosplit', arg === 'default' ? { session: S.sessionId, reset: true } : { session: S.sessionId, on: arg === 'on' })
+      if (!r) { S.autoSplit = arg === 'on'; showStatus($); return { text: `${HUB_DOWN} Auto-split is ${S.autoSplit ? 'on' : 'off'} in this chat until it closes.` } }
+      if (r.error) return { text: `Could not switch auto-split: ${r.error}` }
+      await refreshAutoSplit($)
+    }
+    showStatus($)
+    return {
+      text: S.autoSplit
+        ? '⑂ Auto-split is on in this chat. From the next turn, mechanical work (searches, running tests, bulk edits, commit messages) goes to Haiku or Sonnet workers; the hard thinking stays here. The Savings page in the dashboard shows what it saves. /soul-split off to stop.'
+        : 'Auto-split is off in this chat: it works on its own model unless you ask it to delegate. /soul-split on to start, /soul-split default to follow the dashboard switch.',
+    }
+  })
+
   on('command.run', { command: 'soul-home' }, async ($, e) => {
     const off = e.args.trim().toLowerCase() === 'off'
     const r = await hub<{ home: { session: string } | null; error?: string }>($, '/api/soul/home', off ? { off: true } : { session: S.sessionId, cwd: await $.session.cwd() })

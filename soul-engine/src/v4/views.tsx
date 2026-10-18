@@ -10,8 +10,8 @@ import { AccountLine, AccountsStrip } from './accounts';
 import { accountFor, providerOf, type AccountView } from '../accounts';
 import { Avatar, chatName, Health, Icon, MODEL_C, Progress, ReadinessTrack, recentSplits, since, SplitBoard, StageTrack, StatePill, Topology } from './ui';
 
-export type View = 'today' | 'chats' | 'crossings' | 'tasks' | 'projects' | 'inventory';
-export const VIEWS: [View, string][] = [['today', 'Today'], ['chats', 'Chats'], ['crossings', 'Crossings'], ['tasks', 'Tasks'], ['projects', 'Projects'], ['inventory', 'Inventory']];
+export type View = 'today' | 'chats' | 'crossings' | 'tasks' | 'savings' | 'projects' | 'inventory';
+export const VIEWS: [View, string][] = [['today', 'Today'], ['chats', 'Chats'], ['crossings', 'Crossings'], ['tasks', 'Tasks'], ['savings', 'Savings'], ['projects', 'Projects'], ['inventory', 'Inventory']];
 
 export interface AppCtx {
   chats: ChatItem[];

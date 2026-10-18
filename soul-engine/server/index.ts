@@ -24,6 +24,7 @@ import { askHome, askStatus, getHome, setHome } from './home';
 import { ackMessage, buildFeed, buildTasks, collectMessages, outboxList, queueMessage, toChatItems } from './board';
 import { buildCrossings } from './crossings';
 import { loadAccounts, saveAccount } from './accounts';
+import { autoSplitFor, buildSavings, getAutoSplit, keepDelegation, setAutoSplit } from './savings';
 import type { FlowGraph, Inventory } from '../src/types';
 
 /** The project (a group in projects.local.json) a folder belongs to, by repo path. */
@@ -355,7 +356,25 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/delegations') {
       const d = addDelegation(JSON.parse(await readBody(req, 16 * 1024)));
+      if (d) await keepDelegation(d);
       return d ? json(res, 201, { ok: true }) : json(res, 400, { error: 'expected a delegation object' });
+    }
+
+    // ---- Savings: model mix per day against all-on-Opus; and the auto-split switch the plugin reads ----
+    if (req.method === 'GET' && url.pathname === '/api/savings') {
+      const days = Math.max(3, Math.min(30, Number(url.searchParams.get('days')) || 14));
+      return json(res, 200, await buildSavings(index.modelMix(days)));
+    }
+    if (url.pathname === '/api/autosplit') {
+      if (req.method === 'GET') {
+        const s = await getAutoSplit();
+        const session = url.searchParams.get('session');
+        return json(res, 200, session ? { on: autoSplitFor(s, session), ...s } : s);
+      }
+      if (req.method === 'POST') {
+        const r = await setAutoSplit(JSON.parse(await readBody(req, 2 * 1024)));
+        return typeof r === 'string' ? json(res, 400, { error: r }) : json(res, 200, r);
+      }
     }
 
     if (req.method === 'POST' && url.pathname === '/api/ask') {
