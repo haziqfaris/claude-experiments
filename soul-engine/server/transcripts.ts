@@ -60,6 +60,9 @@ interface FileAcc {
   customTitle: string | null;
   firstPrompt: string | null;
   turns: number;
+  // Crossings: the files it wrote and the git commands it ran (commit, push, merge, pull), by folder.
+  writes: Map<string, number>;
+  gitOps: Map<string, GitOp>;
 }
 
 /** A hand-off seen in a chat: an Agent/Task call, a delegate() call or a workflow. */
@@ -123,6 +126,8 @@ function newAcc(file: string): FileAcc {
     customTitle: null,
     firstPrompt: null,
     turns: 0,
+    writes: new Map(),
+    gitOps: new Map(),
   };
 }
 
@@ -167,6 +172,43 @@ function describeTool(name: string, input: Record<string, any> | undefined): str
 }
 
 const LAUNCH = /^(Agent|Task|Workflow|mcp__soul-relay__delegate)$/;
+const WRITE_TOOL = /^(Edit|Write|NotebookEdit|MultiEdit)$/;
+
+export interface GitOp {
+  ts: number;
+  op: 'commit' | 'push' | 'merge' | 'pull' | 'pr';
+  /** The folder it ran in: the chat's folder, a `cd` before it, or `git -C`. */
+  dir: string;
+  /** Branch pushed, or the commit message's first line (secrets hidden). */
+  detail: string;
+  failed: boolean;
+}
+
+const unq = (s: string) => s.replace(/^["']|["']$/g, '');
+/** The git commands in one shell command line, each with the folder it ran in. Shell state across calls is not followed. */
+export function gitOpsIn(command: string, cwd: string, ts: number): GitOp[] {
+  const out: GitOp[] = [];
+  let dir = cwd;
+  const heredoc = /<<-?\s*['"]?\w+['"]?\s*\r?\n\s*([^\r\n]+)/.exec(command)?.[1] ?? '';
+  const abs = (p: string) => (/^([a-zA-Z]:[\\/]|[\\/])/.test(p) ? p.replace(/^\/([a-zA-Z])\//, '$1:/') : path.join(dir || '.', p));
+  for (const raw of command.split(/&&|\|\||;|\r?\n/)) {
+    const seg = raw.trim();
+    const cd = /^(?:cd|Set-Location|pushd)\s+(?:-LiteralPath\s+|-Path\s+)?("[^"]+"|'[^']+'|\S+)/i.exec(seg);
+    if (cd) { dir = abs(unq(cd[1])); continue; }
+    const g = /^git\s+(?:-C\s+("[^"]+"|'[^']+'|\S+)\s+)?(?:-c\s+\S+\s+)*(commit|push|merge|pull|rebase)\b(.*)$/.exec(seg);
+    if (g) {
+      const at = g[1] ? abs(unq(g[1])) : dir, rest = g[3];
+      const op = g[2] === 'rebase' ? 'pull' : (g[2] as GitOp['op']);
+      const msg = /-m\s+("([^"]*)"|'([^']*)'|\S+)/.exec(rest);
+      const detail = op === 'commit' ? (msg?.[2] ?? msg?.[3] ?? (msg?.[1] && !msg[1].startsWith('"$(') ? msg[1] : '') ?? '') : rest.trim().split(/\s+/).filter((x) => x && !x.startsWith('-')).slice(-1)[0] ?? '';
+      out.push({ ts, op, dir: at, detail: clip((detail || (op === 'commit' ? heredoc : '')).split('\n')[0].replace(SECRETISH, '•••'), 90), failed: false });
+      continue;
+    }
+    const gh = /^gh\s+pr\s+(merge|create)\b(.*)$/.exec(seg);
+    if (gh) out.push({ ts, op: gh[1] === 'merge' ? 'merge' : 'pr', dir, detail: clip((/(\d+)/.exec(gh[2])?.[1] ? `#${/(\d+)/.exec(gh[2])![1]}` : (/--title\s+("([^"]*)"|'([^']*)')/.exec(gh[2])?.[2] ?? '')).replace(SECRETISH, '•••'), 90), failed: false });
+  }
+  return out;
+}
 
 function ingestLine(acc: FileAcc, line: string) {
   let o: Record<string, any>;
@@ -242,6 +284,12 @@ function ingestLine(acc: FileAcc, line: string) {
           acc.tools.set(b.name, (acc.tools.get(b.name) ?? 0) + 1);
           const fp = b.input?.file_path ?? b.input?.notebook_path;
           if (typeof fp === 'string') acc.files.set(fp, ts);
+          if (typeof fp === 'string' && WRITE_TOOL.test(b.name)) acc.writes.set(fp, Number.isNaN(ts) ? acc.lastTs : ts);
+          if ((b.name === 'Bash' || b.name === 'PowerShell') && typeof b.input?.command === 'string' && typeof b.id === 'string') {
+            const ops = gitOpsIn(b.input.command, acc.cwd ?? '', Number.isNaN(ts) ? acc.lastTs : ts);
+            ops.forEach((g, n) => acc.gitOps.set(`${b.id}:${n}`, g));
+            if (acc.gitOps.size > 80) acc.gitOps.delete(acc.gitOps.keys().next().value!);
+          }
         }
       }
       break;
@@ -249,6 +297,7 @@ function ingestLine(acc: FileAcc, line: string) {
     case 'user': {
       // A hand-off returns: the tool_result of its launch.
       for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
+        if (b?.type === 'tool_result' && b.is_error === true) for (const [k, g] of acc.gitOps) if (k.startsWith(`${b.tool_use_id}:`)) g.failed = true;
         const l = b?.type === 'tool_result' ? acc.launches.get(b.tool_use_id) : undefined;
         if (!l) continue;
         const r = o.toolUseResult ?? {};
@@ -604,6 +653,19 @@ export class TranscriptIndex {
       });
     }
     return chats.sort((a, b) => b.lastActivity - a.lastActivity).slice(0, limit);
+  }
+
+  /** Crossings: per chat (sub-agents folded in), the files it wrote and its git commands since `since`. */
+  repoWork(since: number): Map<string, { writes: { path: string; ts: number }[]; git: GitOp[] }> {
+    const out = new Map<string, { writes: { path: string; ts: number }[]; git: GitOp[] }>();
+    for (const acc of this.accs.values()) {
+      if (!acc.sessionId || acc.lastTs < since) continue;
+      const w = out.get(acc.sessionId) ?? { writes: [], git: [] };
+      for (const [p, ts] of acc.writes) if (ts >= since) w.writes.push({ path: p, ts });
+      for (const g of acc.gitOps.values()) if (g.ts >= since) w.git.push(g);
+      out.set(acc.sessionId, w);
+    }
+    return out;
   }
 
   /** Per-session detail (recent prompts, replies, tools, files) for one project. */

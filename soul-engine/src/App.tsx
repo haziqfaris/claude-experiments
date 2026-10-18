@@ -4,10 +4,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import SoulCore from './components/SoulCore';
 import LockScreen from './components/LockScreen';
 import { SoulMood } from './types';
-import { querySoulEngine, sendToChat, useChats, usePoll, useFeed, useFlow, useInventory, useNewBuild, useSnapshot, useStatus, useTasks } from './services/soulService';
+import { querySoulEngine, sendToChat, useChats, useCrossings, usePoll, useFeed, useFlow, useInventory, useNewBuild, useSnapshot, useStatus, useTasks } from './services/soulService';
 import { hueOf, MAIN_HUE, seedOf } from './projects';
 import { fmtCost, fmtTokens } from './format';
 import { LockPrefs, readLocked, readPrefs, writeLocked, writePrefs } from './lock';
+import { CrossingsView, liveAlerts } from './v4/crossings';
 import { ChatsView, InventoryView, ProjectsView, TasksView, TodayHUD, VIEWS, type AppCtx, type View } from './v4/views';
 import { ChatPanel, DocModal, Palette, SendDialog, TaskPanel } from './v4/panels';
 import { Avatar, chatName, Icon } from './v4/ui';
@@ -15,7 +16,7 @@ import { LockMenu } from './v4/lockmenu';
 import type { SoulMsg } from './v4/soulchat';
 import './v4/v4.css';
 
-// Routes: "#/" Today, "#/chats", "#/tasks", "#/projects", "#/inventory"; inside a project "#/p/<project>/<view>".
+// Routes: "#/" Today, "#/chats", "#/crossings", "#/tasks", "#/projects", "#/inventory"; inside a project "#/p/<project>/<view>".
 function parseHash(): { scope: string | null; view: View } {
   const h = window.location.hash.replace(/^#\/?/, '');
   const legacy: Record<string, View> = { status: 'projects', relay: 'chats', soul: 'today', '': 'today' };
@@ -37,6 +38,7 @@ const App: React.FC = () => {
   const chats = useChats() ?? [];
   const feed = useFeed() ?? [];
   const tasks = useTasks() ?? [];
+  const crossings = useCrossings();
   const { status } = useStatus(60000);
   const flow = useFlow(20000);
   const newBuild = useNewBuild();
@@ -87,6 +89,8 @@ const App: React.FC = () => {
   const ctx: AppCtx = {
     chats, feed, tasks, status: status ?? [], inventory, snapshot, scope, setScope, go,
     statusOf: (n) => statusMap.get(n),
+    crossings,
+    sendTo: (chatId, title, text) => setSend({ chatId, title, text }),
     openChat: (id, list) => { const c = chats.find((x) => x.id === id); if (c && scope && c.project !== scope) navigate(c.project, view); setDrawer({ type: 'chat', id, list }); },
     openTask: (id) => setDrawer({ type: 'task', id }),
     askRoadmap: (chatId) => {
@@ -190,6 +194,7 @@ const App: React.FC = () => {
   const inScope = (p: string) => !scope || scope === p;
   const badges: Partial<Record<View, [number, string]>> = {
     chats: [chats.filter((c) => inScope(c.project) && c.state === 'waiting').length, 'wait'],
+    crossings: [liveAlerts(crossings, chats, scope).filter((a) => a.level === 'attend').length, 'wait'],
     tasks: [tasks.filter((t) => inScope(t.project) && t.status === 'blocked').length, 'wait'],
     projects: [(status ?? []).filter((s) => inScope(s.name) && s.live.some((l) => !l.ok && !l.staging && l.source !== 'platform address')).length, 'red'],
   };
@@ -247,6 +252,7 @@ const App: React.FC = () => {
           <main>
             {view === 'today' && <TodayHUD ctx={ctx} soul={soul} badges={badges} ask={{ msgs, busy, onAsk, onClear: () => setThreads((t) => ({ ...t, [tkey]: [] })), home, onPick: pickHome }} onSearch={() => setPalette(true)} onLock={lock} update={newBuild} />}
             {view === 'chats' && <ChatsView ctx={ctx} topoMode={topoMode} setTopoMode={setTopoMode} />}
+            {view === 'crossings' && <CrossingsView ctx={ctx} />}
             {view === 'tasks' && <TasksView ctx={ctx} />}
             {view === 'projects' && <ProjectsView ctx={ctx} />}
             {view === 'inventory' && <InventoryView ctx={ctx} onDoc={openDoc} />}

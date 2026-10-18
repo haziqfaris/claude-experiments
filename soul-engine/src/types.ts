@@ -420,7 +420,7 @@ export interface ChatItem extends FlowChat {
 
 export interface FeedItem {
   at: number;
-  kind: 'split' | 'merge' | 'ask' | 'commit' | 'site' | 'roadmap' | 'you' | 'reply';
+  kind: 'split' | 'merge' | 'ask' | 'commit' | 'site' | 'roadmap' | 'you' | 'reply' | 'cross';
   text: string;
   project: string | null;
   chat: string | null;
@@ -453,4 +453,68 @@ export interface OutboxItem {
   deliveredAt: number | null;
   startedAt: number | null;
   reason: string | null;
+}
+
+// ---- Crossings: chats writing, committing and pushing into repos, and when that needs you ----
+export interface CrossingRepo {
+  id: string;
+  name: string;
+  project: string;
+  path: string;
+  branch: string | null;
+  dirty: number;
+  ahead: number | null;
+  /** Commits on GitHub this copy does not have yet (after the hub's last fetch), or null when unknown. */
+  behind: number | null;
+  fetchedAt: number | null;
+  /** Chats that worked in it in the last day, and how many of them changed it. */
+  chats: number;
+  writers: number;
+  /** Needs a look: an alert, or more than one chat changing it. */
+  hot: boolean;
+  lastCommitAt: number | null;
+}
+
+export interface CrossingLink {
+  chat: string;
+  repo: string;
+  edits: number;
+  /** Repo-relative files it wrote (up to 40). */
+  files: string[];
+  commits: number;
+  pushes: number;
+  merges: number;
+  pulls?: number;
+  lastAt: number;
+  lastPushAt: number | null;
+  lastPullAt: number | null;
+  lastOp: { op: 'commit' | 'push' | 'merge' | 'pull' | 'pr'; at: number; detail: string; copy: string } | null;
+  /** The chat's own folder is in this repo. */
+  home: boolean;
+  /** The repo belongs to another project than the chat's. */
+  foreign: boolean;
+  copy: string;
+}
+
+export interface CrossingAlert {
+  id: string;
+  at: number;
+  kind: 'pushed-under' | 'same-time' | 'foreign' | 'behind';
+  level: 'attend' | 'note';
+  repo: string;
+  /** The chat that made the change, and the one that should act (null when none). */
+  from: string | null;
+  to: string | null;
+  title: string;
+  text: string;
+  /** A message to send into `to` (only after you confirm it), or null. */
+  fix: string | null;
+}
+
+export interface Crossings {
+  generatedAt: number;
+  repos: CrossingRepo[];
+  links: CrossingLink[];
+  alerts: CrossingAlert[];
+  fetch: 'on' | 'off';
 }
