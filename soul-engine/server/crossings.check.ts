@@ -21,7 +21,7 @@ const work = new Map([
   ['GRID', { writes: [{ path: 'C:/Dev/plexyz-grid-wt/src/b.ts', ts: now - 30 * min }], git: [] }],
   ['GRID2', { writes: [{ path: 'C:/Dev/plexyz-grid/src/a.ts', ts: now - 25 * min }], git: [{ ts: now - 5 * min, op: 'pull' as const, dir: 'C:/Dev/plexyz-grid', detail: '', failed: false }] }],
 ]);
-const x = buildCrossings(chats, work, inv, [], now);
+const x = await buildCrossings(chats, work, inv, [], now);
 const kinds = x.alerts.map((a) => `${a.kind}:${a.from}->${a.to}`);
 console.log(kinds);
 assert.ok(kinds.includes('pushed-under:AX->GRID'), 'GRID works in a copy of the repo AX pushed to');

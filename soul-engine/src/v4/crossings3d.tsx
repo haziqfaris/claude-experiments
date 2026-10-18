@@ -340,7 +340,7 @@ const Crossings3D: React.FC<SceneProps> = ({ data, chats, focus, onChat, onRepo,
   }, []);
 
   // Rebuild only when what is drawn changes, not on every poll.
-  const sig = JSON.stringify([data.repos.map((r) => [r.id, r.hot, r.behind, r.branch, r.chats]), data.links.map((l) => [l.chat, l.repo, l.edits, l.commits, l.pushes, l.merges, l.foreign]), data.alerts.map((a) => a.id),
+  const sig = JSON.stringify([data.repos.map((r) => [r.id, r.hot, r.behind, r.ahead, r.dirty, r.branch, r.chats]), data.links.map((l) => [l.chat, l.repo, l.edits, l.commits, l.pushes, l.merges, l.foreign]), data.alerts.map((a) => a.id),
     chats.filter((c) => data.links.some((l) => l.chat === c.id)).map((c) => [c.id, c.state, c.name])]);
   useEffect(() => { api.current?.build(data, chats); }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.current?.focus(focus); }, [focus]);

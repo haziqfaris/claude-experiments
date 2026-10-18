@@ -10,7 +10,8 @@ type Work = Map<string, { writes: { path: string; ts: number }[]; git: GitOp[] }
 
 const HOURS = 24;
 const TOGETHER_MS = 30 * 60_000;
-const FETCH_EVERY_MS = 5 * 60_000;
+const FETCH_EVERY_MS = 3 * 60_000;
+const LOCAL_TTL_MS = 10_000;
 const n = (p: string) => p.replace(/\\/g, '/').replace(/^\/([a-z])\//i, '$1:/').replace(/\/+$/, '').toLowerCase();
 
 function git(cwd: string, args: string[], timeout = 4000): Promise<string | null> {
@@ -19,8 +20,25 @@ function git(cwd: string, args: string[], timeout = 4000): Promise<string | null
   });
 }
 
+// ---- Each copy's own git state, read locally every few seconds (no network): branch, changed files, commits not
+// pushed, and commits not pulled as of the last fetch. A chat's pull or push shows within seconds. ----
+interface LocalState { branch: string | null; dirty: number; ahead: number | null; behind: number | null; at: number }
+const local = new Map<string, LocalState>();
+async function localState(dir: string): Promise<LocalState> {
+  const hit = local.get(n(dir));
+  if (hit && Date.now() - hit.at < LOCAL_TTL_MS) return hit;
+  const [branch, porcelain, ahead, behind] = await Promise.all([
+    git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']), git(dir, ['status', '--porcelain']),
+    git(dir, ['rev-list', '--count', '@{u}..HEAD']), git(dir, ['rev-list', '--count', 'HEAD..@{u}']),
+  ]);
+  const num = (v: string | null) => (v == null || v === '' ? null : Number(v));
+  const s: LocalState = { branch, dirty: porcelain ? porcelain.split(/\r?\n/).filter(Boolean).length : 0, ahead: num(ahead), behind: num(behind), at: Date.now() };
+  local.set(n(dir), s);
+  return s;
+}
+
 // ---- Behind the remote: a light fetch every few minutes for the copies chats work in ----
-const remote = new Map<string, { behind: number | null; fetchedAt: number; branch: string | null }>();
+const remote = new Map<string, { fetchedAt: number }>();
 let fetching = false;
 
 async function refreshRemote(dirs: string[]) {
@@ -32,8 +50,8 @@ async function refreshRemote(dirs: string[]) {
       if (cur && Date.now() - cur.fetchedAt < FETCH_EVERY_MS) continue;
       // Read-only for your work: it updates what the hub knows about GitHub, never your files or branches.
       await git(dir, ['fetch', '--quiet', '--no-tags', '--no-recurse-submodules'], 20_000);
-      const [behind, branch] = await Promise.all([git(dir, ['rev-list', '--count', 'HEAD..@{u}']), git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])]);
-      remote.set(n(dir), { behind: behind == null || behind === '' ? null : Number(behind), fetchedAt: Date.now(), branch });
+      remote.set(n(dir), { fetchedAt: Date.now() });
+      local.delete(n(dir)); // re-read against what GitHub has now
     }
   } finally { fetching = false; }
 }
@@ -47,7 +65,7 @@ function repoIndex(inv: Inventory) {
 const projectOfRepo = (inv: Inventory, id: string) => inv.groups.find((g) => g.repos.includes(id))?.name ?? inv.projects.find((p) => p.id === id)?.name ?? id;
 const nameOf = (c: ChatItem) => c.name ?? c.title.slice(0, 60);
 
-export function buildCrossings(chats: ChatItem[], work: Work, inv: Inventory | null, status: ProjectStatus[], now = Date.now()): Crossings {
+export async function buildCrossings(chats: ChatItem[], work: Work, inv: Inventory | null, status: ProjectStatus[], now = Date.now()): Promise<Crossings> {
   const since = now - HOURS * 3_600_000;
   const empty: Crossings = { generatedAt: now, repos: [], links: [], alerts: [], fetch: process.env.SOUL_FETCH === 'off' ? 'off' : 'on' };
   if (!inv) return empty;
@@ -97,15 +115,18 @@ export function buildCrossings(chats: ChatItem[], work: Work, inv: Inventory | n
 
   // ---- Repos that show up, with what git says about them ----
   const statusRepo = new Map(status.flatMap((s) => s.repos.map((r) => [n(r.path), r] as const)));
+  const ids = [...new Set([...links.values()].map((l) => l.repo))];
+  const states = new Map(await Promise.all(ids.map(async (id) => [id, await localState(inv.projects.find((x) => x.id === id)!.path)] as const)));
   const repos = new Map<string, CrossingRepo>();
   for (const l of links.values()) {
     if (repos.has(l.repo)) continue;
     const p = inv.projects.find((x) => x.id === l.repo)!;
     const sr = statusRepo.get(n(p.path));
     const rm = remote.get(n(p.path));
+    const ls = states.get(l.repo);
     repos.set(l.repo, {
-      id: l.repo, name: p.name, project: projectOfRepo(inv, l.repo), path: p.path, branch: rm?.branch ?? sr?.branch ?? p.branch,
-      dirty: sr?.dirty ?? 0, ahead: sr?.ahead ?? null, behind: rm?.behind ?? null, fetchedAt: rm?.fetchedAt ?? null,
+      id: l.repo, name: p.name, project: projectOfRepo(inv, l.repo), path: p.path, branch: ls?.branch ?? sr?.branch ?? p.branch,
+      dirty: ls?.dirty ?? sr?.dirty ?? 0, ahead: ls?.ahead ?? sr?.ahead ?? null, behind: ls?.behind ?? null, fetchedAt: rm?.fetchedAt ?? null,
       chats: 0, writers: 0, hot: false, lastCommitAt: sr?.recentCommits?.[0]?.date ?? sr?.lastCommit?.date ?? null,
     });
   }
