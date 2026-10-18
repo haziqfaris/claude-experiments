@@ -1,0 +1,960 @@
+<title>Soul Engine v3</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap">
+<style>
+/* Layout: one top bar (soul switcher, three places, metrics, lock), then one working area per place.
+   The app's own dark navy, made friendlier: rounded tonal cards, pill chips, soft state layers. Emerald is the default accent. */
+:root {
+  --bg: #050a14; --bg-2: #020408;
+  --surface: #0e1626; --surface-2: #142035; --surface-3: #1b2943; --outline: rgba(148, 178, 255, 0.10); --outline-2: rgba(148, 178, 255, 0.2);
+  --accent: #34d399; --accent-ink: #022c1e; --accent-soft: rgba(52, 211, 153, 0.14);
+  --text: #e8edf5; --muted: #9aa6ba; --dim: #66728a;
+  --work: #34d399; --wait: #fbbf24; --wait-ink: #2b1d00; --done: #5eead4; --red: #f87171; --violet: #b39dff; --amber: #fbbf24; --teal: #5eead4;
+  --gold: var(--wait); --cyan: var(--work); --brand: var(--accent);
+  --sans: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --code: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r-card: 20px; --r-tile: 14px; --r-pill: 999px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.22);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--bg-2); color: var(--text); font: 400 13px/1.55 var(--sans); }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.app { min-height: 100%; background: radial-gradient(circle at 50% 50%, rgba(52, 211, 153, 0.05) 1px, transparent 1px) 0 0 / 40px 40px, linear-gradient(var(--bg-2), var(--bg) 40%, var(--bg-2)); }
+
+/* Top bar */
+.nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; display: flex; align-items: center; gap: 10px; min-height: 64px; flex-wrap: wrap;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: rgba(5, 10, 20, 0.88); backdrop-filter: blur(14px); border-bottom: 1px solid var(--outline); }
+.brand { display: flex; align-items: center; gap: 8px; padding-right: 12px; }
+.brand::before { content: ""; width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 40% 40%, #d1fae5, var(--accent) 45%, rgba(52, 211, 153, 0) 72%); box-shadow: 0 0 12px rgba(52, 211, 153, 0.6); }
+.brand b { font-weight: 600; font-size: 18px; letter-spacing: 0.04em; }
+.brand span { font-size: 11px; color: var(--muted); }
+.switch { position: relative; }
+.switch > button { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px 0 12px; border-radius: var(--r-pill); background: var(--surface-2); max-width: 240px; font-weight: 500; transition: background 0.15s; }
+.switch > button:hover { background: var(--surface-3); }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.menu { position: absolute; left: 0; top: 46px; width: 280px; background: var(--surface-2); border-radius: 16px; padding: 8px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
+.menu button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; text-align: left; }
+.menu button:hover { background: rgba(255, 255, 255, 0.06); }
+.menu .k { padding: 10px 12px 4px; font-size: 11px; font-weight: 500; color: var(--dim); }
+.tabs { display: flex; gap: 4px; margin-left: 6px; padding: 4px; border-radius: var(--r-pill); background: var(--surface); }
+.tab { height: 34px; padding: 0 16px; border-radius: var(--r-pill); font-size: 13px; font-weight: 500; color: var(--muted); display: flex; align-items: center; gap: 7px; transition: background 0.15s, color 0.15s; }
+.tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.tab[aria-current="page"] { color: var(--accent-ink); background: var(--accent); }
+.badge { font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: var(--r-pill); background: var(--wait); color: var(--wait-ink); line-height: 18px; }
+.metrics { margin-left: auto; display: flex; gap: 22px; }
+.metric { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+.metric small { font-size: 11px; color: var(--dim); }
+.metric b { font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; }
+.lockbtn { height: 38px; padding: 0 18px; border-radius: var(--r-pill); background: var(--surface-2); font-weight: 500; color: var(--text); transition: background 0.15s; }
+.lockbtn:hover { background: var(--surface-3); }
+.mockchip { font-size: 11px; color: var(--wait); background: rgba(251, 191, 36, 0.1); border-radius: var(--r-pill); padding: 2px 10px; }
+
+/* Working area */
+main { padding-block: 24px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1320px; margin: 0 auto; }
+.head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.head h1 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.head .s { color: var(--muted); font-size: 13px; }
+.muted { color: var(--muted); } .dim { color: var(--dim); } .small { font-size: 12px; } .tiny { font-size: 11px; }
+.label { font-size: 12px; font-weight: 500; color: var(--muted); }
+.code { font-family: var(--code); font-size: 11.5px; }
+
+/* Cards: rounded, tonal, softly lifted */
+.glass { position: relative; background: var(--surface); border: 1px solid var(--outline); border-radius: var(--r-card); box-shadow: var(--shadow); }
+.avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; font-size: 14px; flex: none;
+  color: var(--hue); background: color-mix(in srgb, var(--hue) 18%, transparent); }
+
+.pill { font-size: 11px; font-weight: 500; padding: 2px 10px; border-radius: var(--r-pill); white-space: nowrap; }
+.p-work { color: var(--work); background: var(--accent-soft); }
+.p-wait { color: var(--wait-ink); background: var(--wait); }
+.p-idle { color: var(--muted); background: var(--surface-3); }
+.p-done { color: var(--done); background: rgba(94, 234, 212, 0.12); }
+.bar { height: 6px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: var(--r-pill); }
+.track { display: flex; gap: 3px; }
+.track span { height: 6px; flex: 1; border-radius: var(--r-pill); background: var(--surface-3); }
+
+/* Projects: a rounded card per project; its chats sit inside as softer tiles */
+.project { margin-bottom: 14px; }
+.project-top { display: grid; grid-template-columns: 22px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr); gap: 18px; align-items: center; padding: 16px 20px; cursor: pointer; border-radius: var(--r-card); transition: background 0.15s; }
+.project-top:hover { background: rgba(255, 255, 255, 0.025); }
+.chev { color: var(--dim); transition: transform 0.2s; font-size: 12px; text-align: center; }
+.open .chev { transform: rotate(90deg); color: var(--text); }
+.pname { font-size: 16px; font-weight: 600; display: flex; gap: 10px; align-items: center; }
+.pname a { font-size: 11px; font-weight: 500; color: var(--accent); background: var(--accent-soft); border-radius: var(--r-pill); padding: 1px 10px; text-decoration: none; }
+.pname a:hover { background: rgba(52, 211, 153, 0.24); }
+.chats { display: grid; gap: 8px; padding: 0 14px 14px; }
+.chat { display: grid; grid-template-columns: 22px minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 1.7fr) 130px; gap: 18px; align-items: center; padding: 12px 16px; background: var(--surface-2); border-radius: var(--r-tile); cursor: pointer; transition: background 0.15s; }
+.chat:hover { background: var(--surface-3); }
+.cname { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.said { font-size: 12px; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ask { color: var(--wait); }
+.right { text-align: right; }
+.sectionhead { display: grid; grid-template-columns: 22px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr); gap: 18px; padding: 0 21px 8px; }
+
+/* Chats board */
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.col h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.col h2 .count { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface-2); border-radius: var(--r-pill); padding: 0 9px; }
+.card { padding: 16px 18px 14px; margin-bottom: 12px; cursor: pointer; transition: transform 0.15s, background 0.15s, box-shadow 0.15s; }
+.card:hover { background: var(--surface-2); transform: translateY(-2px); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35); }
+.card .foot { display: flex; gap: 12px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--outline); font-size: 11px; color: var(--dim); }
+
+/* Chat detail */
+.back { font-size: 13px; font-weight: 500; color: var(--accent); padding: 6px 12px; margin: 0 0 12px -12px; border-radius: var(--r-pill); }
+.back:hover { background: var(--accent-soft); }
+.detail-top { padding: 20px 22px; margin-bottom: 16px; }
+.detail-top h1 { margin: 0; font-size: 22px; font-weight: 600; text-wrap: balance; }
+.steps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.step { font-size: 12px; padding: 5px 12px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--muted); }
+.step.done { color: var(--done); background: rgba(94, 234, 212, 0.1); }
+.step.now { color: var(--accent-ink); background: var(--accent); font-weight: 500; }
+.grid3 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+.box { padding: 16px 18px; }
+.tl { list-style: none; margin: 10px 0 0; padding: 0; }
+.tl li { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 8px; padding: 7px 0; font-size: 12px; border-top: 1px solid var(--outline); }
+.tl li:first-child { border-top: 0; }
+.lane { background: var(--surface-2); border-radius: var(--r-tile); padding: 10px 12px; margin-top: 8px; border: 0 !important; }
+.copy { font-size: 12px; font-weight: 500; color: var(--accent-ink); background: var(--accent); border-radius: var(--r-pill); padding: 5px 14px; }
+.copy:hover { filter: brightness(1.08); }
+
+/* Project page */
+.ptabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+.ptab { padding: 7px 16px; border-radius: var(--r-pill); font-weight: 500; color: var(--muted); background: var(--surface); }
+.ptab:hover { color: var(--text); }
+.ptab[aria-selected="true"] { color: var(--accent-ink); background: var(--accent); }
+.horizons { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; }
+.horizon { width: 270px; flex: none; padding: 16px; }
+.item { display: flex; gap: 8px; font-size: 12px; padding: 3px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th { text-align: left; font-weight: 500; font-size: 12px; color: var(--muted); padding: 12px 16px; }
+td { padding: 11px 16px; border-top: 1px solid var(--outline); }
+.scroll { overflow-x: auto; }
+
+/* Soul and lock */
+.soulwrap { position: relative; height: min(66vh, 620px); display: grid; place-items: center; }
+.soulwrap canvas { width: min(540px, 90vw); height: min(540px, 90vw); }
+.askbox { max-width: 660px; margin: 0 auto; padding: 16px 18px; }
+.askbox input { width: 100%; margin-top: 8px; background: var(--surface-2); border: 1px solid transparent; border-radius: var(--r-pill); padding: 13px 20px; color: var(--text); font: inherit; }
+.askbox input:focus { outline: none; border-color: var(--accent); }
+.lock { position: fixed; inset: 0; z-index: 50; background: var(--bg-2); display: grid; place-items: center; cursor: pointer; }
+.lock canvas { width: min(640px, 92vw); height: min(640px, 92vw); }
+.murmur { position: absolute; left: 50%; top: 76%; transform: translateX(-50%); font-size: 15px; font-weight: 300; letter-spacing: 0.2em; color: rgba(52, 211, 153, 0.85); text-shadow: 0 0 12px rgba(52, 211, 153, 0.45); transition: opacity 1.4s; white-space: nowrap; }
+.lock .hint { position: absolute; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0; text-align: center; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: #344055; }
+
+@media (prefers-reduced-motion: no-preference) { .pulse { animation: pulse 1.8s ease-in-out infinite; } @keyframes pulse { 50% { opacity: 0.55; } } }
+@media (prefers-reduced-motion: reduce) { .card, .chat, .chev, .tab, .project-top { transition: none; } .card:hover { transform: none; } }
+@media (max-width: 900px) {
+  .metrics { display: none; }
+  .project-top { grid-template-columns: 22px minmax(0, 1fr); }
+  .project-top > :nth-child(n+3) { grid-column: 2; }
+  .sectionhead { display: none; }
+  .chat { grid-template-columns: 22px minmax(0, 1fr); }
+  .chat > :nth-child(n+3) { grid-column: 2; }
+  .chat .right { text-align: left; }
+  .cols, .grid3 { grid-template-columns: minmax(0, 1fr); }
+  .tab { padding: 0 12px; }
+}
+
+/* Shared small controls */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.ghost { font-size: 12px; font-weight: 500; color: var(--accent); padding: 4px 12px; border-radius: var(--r-pill); }
+.ghost:hover { background: var(--accent-soft); }
+.copy.sm { font-size: 11px; padding: 4px 12px; }
+.chiprow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 5px 12px; border-radius: var(--r-pill); background: var(--surface); color: var(--muted); border: 1px solid var(--outline); }
+.fchip span { color: var(--dim); font-weight: 400; }
+.fchip:hover { color: var(--text); }
+.fchip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: rgba(52, 211, 153, 0.35); }
+.fchip[aria-pressed="true"] span { color: var(--accent); }
+.seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: var(--r-pill); background: var(--surface); }
+.seg button { font-size: 12px; font-weight: 500; padding: 5px 14px; border-radius: var(--r-pill); color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--surface-3); color: var(--text); }
+.avatar.sm { width: 22px; height: 22px; font-size: 11px; }
+.empty { padding: 22px; color: var(--muted); }
+
+/* Inventory */
+.tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile { padding: 14px 16px; }
+.tile small { display: block; font-size: 12px; color: var(--muted); }
+.tile b { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile.warn b { color: var(--wait); }
+.invbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.search { flex: 1; min-width: 220px; display: flex; align-items: center; gap: 10px; padding: 0 18px; height: 44px; border-radius: var(--r-pill); background: var(--surface-2); border: 1px solid transparent; }
+.search:focus-within { border-color: var(--accent); }
+.search input { flex: 1; min-width: 0; background: none; border: 0; color: var(--text); font: inherit; outline: none; }
+.invgrid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.invgrid aside { display: grid; gap: 12px; }
+.invcard { padding: 14px 16px 10px; margin-bottom: 12px; }
+.invhead { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+.repo-sub { margin: 8px 0 2px 4px; font-family: var(--code); }
+.fact { display: grid; grid-template-columns: 10px minmax(0, 1fr) minmax(0, auto) 84px; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 12px; }
+.fact:hover { background: var(--surface-2); }
+.fact-label { font-weight: 500; font-size: 12.5px; word-break: break-word; }
+.fact-ev { font-size: 11px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+.c-service { background: #93c5fd; } .c-apikey { background: #fbbf24; } .c-api { background: #f0abfc; } .c-hosting { background: #34d399; } .c-domain { background: #5eead4; }
+.c-email { background: #fca5a5; } .c-signin { background: #c4b5fd; } .c-job { background: #a3a3a3; } .c-default { background: #66728a; }
+.side-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--outline); }
+.side-row:first-of-type { border-top: 0; }
+.plus { color: var(--done); font-weight: 600; width: 12px; } .minus { color: var(--red); font-weight: 600; width: 12px; }
+.doc { display: block; width: 100%; text-align: left; font-size: 12.5px; font-weight: 500; padding: 9px 12px; margin-top: 6px; border-radius: 12px; background: var(--surface-2); }
+.doc:hover { background: var(--surface-3); }
+
+/* Tasks */
+.suggest { display: flex; gap: 12px; align-items: center; padding: 12px 16px; margin-bottom: 14px; border-color: rgba(52, 211, 153, 0.3); }
+.kanban { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.kcol { background: rgba(14, 22, 38, 0.55); border-radius: var(--r-card); padding: 12px; }
+.kcol h2 { margin: 2px 4px 12px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.kcol h2 .count { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface-2); border-radius: var(--r-pill); padding: 0 9px; }
+.task { padding: 12px 14px; margin-bottom: 10px; display: grid; gap: 6px; border-radius: 16px; transition: transform 0.15s; }
+.task:hover { transform: translateY(-1px); }
+.task-top { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.task-title { font-weight: 500; font-size: 13px; }
+.task-foot { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--outline); }
+.srcpill { margin-left: auto; font-size: 10.5px; font-weight: 500; padding: 1px 8px; border-radius: var(--r-pill); background: var(--surface-3); color: var(--muted); }
+.s-soul { background: var(--accent-soft); color: var(--accent); }
+.s-split { background: rgba(147, 197, 253, 0.14); color: #93c5fd; margin-left: 0; }
+.model { font-size: 11px; font-weight: 600; text-transform: capitalize; padding: 1px 8px; border-radius: var(--r-pill); color: var(--m); background: color-mix(in srgb, var(--m) 16%, transparent); }
+@media (max-width: 1100px) { .kanban { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .invgrid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) { .kanban, .tiles { grid-template-columns: minmax(0, 1fr); } .fact { grid-template-columns: 10px minmax(0, 1fr); } .fact > :nth-child(n+3) { grid-column: 2; } }
+
+/* Live topology */
+.livetopo { padding: 14px 16px; margin-bottom: 18px; }
+.lt-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.lt-head b { font-weight: 600; font-size: 15px; }
+.livedot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6); }
+.legend { margin-left: auto; display: flex; gap: 12px; align-items: center; font-size: 11px; color: var(--muted); }
+.legend i { width: 18px; height: 3px; border-radius: 2px; background: var(--c); display: inline-block; margin-right: -6px; }
+.legend i.back { background: none; border-top: 2px dashed var(--done); height: 0; }
+.lt-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+.clusters { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.cluster { text-align: left; padding: 8px 10px 10px; border-radius: 16px; background: var(--surface-2); transition: background 0.15s; }
+.cluster:hover { background: var(--surface-3); }
+.topo { width: 100%; height: auto; display: block; }
+.edge { fill: none; stroke: var(--c); stroke-width: 2; }
+.edge.queued { stroke-dasharray: 2 6; opacity: 0.45; }
+.edge.back { stroke-dasharray: 6 5; opacity: 0.9; }
+.edge.run { stroke-dasharray: 8 8; }
+.tnode circle { stroke-width: 2; }
+.tnode.queued { opacity: 0.55; }
+.ring { fill: none; stroke-width: 1.5; opacity: 0.5; }
+.tmodel { font: 600 10px var(--sans); text-transform: capitalize; }
+.tmain { font: 600 12px var(--sans); fill: var(--text); }
+.tlabel { font: 500 10.5px var(--sans); fill: var(--text); }
+.tsub { font: 400 9.5px var(--sans); fill: var(--muted); }
+.eventlog { list-style: none; margin: 0; padding: 4px 0 0; max-height: 260px; overflow: hidden; }
+.eventlog li { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; font-size: 11.5px; padding: 6px 0; border-top: 1px solid var(--outline); }
+.eventlog li:first-child { border-top: 0; }
+.eventlog li.fresh span:last-child { color: var(--accent); }
+.bigtopo-wrap { padding: 14px 16px; }
+#bigtopo .topo { max-width: 760px; margin: 0 auto; }
+@media (prefers-reduced-motion: no-preference) {
+  .edge.run { animation: flow 0.9s linear infinite; }
+  .edge.back { animation: flowback 1.6s linear infinite; }
+  .ring { animation: ring 1.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+  .livedot { animation: live 1.8s ease-out infinite; }
+  .eventlog li.fresh { animation: fresh 0.6s ease-out; }
+  @keyframes flow { to { stroke-dashoffset: -32; } }
+  @keyframes flowback { to { stroke-dashoffset: 22; } }
+  @keyframes ring { from { transform: scale(0.9); opacity: 0.6; } to { transform: scale(1.25); opacity: 0; } }
+  @keyframes live { 70% { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); } 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); } }
+  @keyframes fresh { from { background: rgba(52, 211, 153, 0.12); } to { background: transparent; } }
+}
+@media (max-width: 1000px) { .lt-body { grid-template-columns: minmax(0, 1fr); } }
+
+/* Chat in its project's context */
+.ctxpanel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 18px; padding: 16px 20px; margin-bottom: 16px; }
+.ctx-cell { min-width: 0; }
+.rm-chip { font-size: 11px; font-weight: 500; padding: 2px 10px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.rm-chip.none { background: rgba(251, 191, 36, 0.12); color: var(--wait); }
+.card-next { font-size: 11.5px; margin: 2px 0 8px; color: var(--text); }
+.card-next span { color: var(--muted); }
+.card-rm { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+
+/* Confirm before sending into a chat */
+.scrim { position: fixed; inset: 0; z-index: 60; background: rgba(2, 4, 8, 0.7); display: grid; place-items: center; padding: 16px; }
+.sendbox { width: min(560px, 100%); background: var(--surface-2); border-radius: 24px; padding: 22px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); }
+.sendbox h3 { margin: 0 0 4px; font-size: 17px; font-weight: 600; text-wrap: balance; }
+.sendbox textarea { width: 100%; min-height: 130px; margin-top: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--outline-2); background: var(--surface); color: var(--text); font: 12.5px/1.5 var(--code); resize: vertical; }
+.sendbox textarea:focus { outline: none; border-color: var(--accent); }
+.sendbox .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.btn { font-weight: 500; padding: 9px 18px; border-radius: var(--r-pill); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.text { color: var(--accent); }
+.btn.text:hover { background: var(--accent-soft); }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 70; background: #e8edf5; color: #0e1626; font-weight: 500; padding: 12px 20px; border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); max-width: calc(100% - 32px); }
+@media (max-width: 1000px) { .ctxpanel { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .ctxpanel { grid-template-columns: minmax(0, 1fr); } }
+</style>
+
+<div class="app">
+  <nav class="nav" aria-label="Main">
+    <div class="brand"><b>REKA</b><span>v3</span></div>
+    <div class="switch">
+      <button type="button" id="swBtn" aria-haspopup="listbox" aria-expanded="false"><span class="dot" id="swDot"></span><span id="swName">All projects</span><span class="dim">▾</span></button>
+      <div class="menu" id="swMenu" role="listbox" hidden></div>
+    </div>
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab" data-view="projects" aria-current="page">Projects</button>
+      <button type="button" class="tab" data-view="chats">Chats <span class="badge" id="waitBadge"></span></button>
+      <button type="button" class="tab" data-view="tasks">Tasks</button>
+      <button type="button" class="tab" data-view="inventory">Inventory</button>
+      <button type="button" class="tab" data-view="soul">Soul</button>
+    </div>
+    <div class="metrics">
+      <div class="metric"><small>Tokens today</small><b>138.1M</b></div>
+      <div class="metric"><small>Est. cost</small><b>$51.21</b></div>
+      <div class="metric"><small>Chats live</small><b id="liveCount"></b></div>
+      <div class="metric"><small>Saved</small><b>$2.14</b></div>
+    </div>
+    <span class="mockchip" title="This page is a design mock with sample data">mock · sample data</span>
+    <button type="button" class="lockbtn" id="lockBtn" title="Lock (Ctrl+Shift+L)">Lock</button>
+  </nav>
+  <main id="main"></main>
+</div>
+
+<div class="scrim" id="sendBox" hidden>
+  <div class="sendbox" role="dialog" aria-modal="true" aria-labelledby="sendTitle">
+    <h3 id="sendTitle"></h3>
+    <div class="tiny muted" id="sendState"></div>
+    <label for="sendMsg" class="sr">Message to send</label>
+    <textarea id="sendMsg"></textarea>
+    <div class="tiny dim" style="margin-top:8px">Sent into that Claude Code chat as if you typed it, through the soul-relay plugin. It runs there on your subscription.</div>
+    <div class="row"><button type="button" class="btn text" id="sendCancel">Cancel</button><button type="button" class="btn primary" id="sendGo">Send to chat</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden role="status"></div>
+<div class="lock" id="lock" hidden role="dialog" aria-label="Locked">
+  <canvas id="lockSoul" width="900" height="900"></canvas>
+  <div class="murmur" id="murmur"></div>
+  <div class="hint">press any key for windows hello</div>
+</div>
+
+<script>
+// ---- Sample data shaped like the hub's real answers (/api/status, /api/flow); names and numbers are examples ----
+const PROJECTS = [
+  { name: 'PlusXnergy', kind: 'Client work', hue: '#ffb347', stage: 7, readiness: 3, live: 'bess-ems-dashboard.workers.dev', roadmap: [4, 23, 4], next: 'Roadmap tracker: 9 items left, 4 blocked (next: staging on paid plans).' },
+  { name: 'NexusTAC', kind: 'Client work', hue: '#ff6ad5', stage: 8, readiness: 4, live: 'axle.nexustac.reka.tech', verdict: 'Ready for a supervised pilot', roadmap: [27, 46, 0], next: 'Now, finish the live test: 10 items left (next: re-run the functions deploy).' },
+  { name: 'PLExyz', kind: 'Products', hue: '#ffe14d', stage: 9, readiness: 3, live: 'grid.antarax.ai', verdict: 'Decision: No-Go', roadmap: [2, 57, 20], next: 'Check crowd.antarax.ai/spectra: it did not answer.' },
+  { name: 'Yara', kind: 'Products', hue: '#4dffe1', stage: 8, readiness: 3, live: 'yo.antarax.ai', verdict: 'Decision: No-Go', roadmap: [0, 19, 0], next: 'Before the first client: 7 owner actions left (next: clear the sample data on hosted).' },
+  { name: 'AntaraX Frame', kind: 'Products', hue: '#ff6b6b', stage: 7, readiness: 3, live: 'antarax-frame.vercel.app', verdict: 'Hold, not ready for Public Beta', roadmap: null, next: 'No roadmap yet: type /soul-roadmap in its chat.' },
+  { name: 'REKA internal', kind: 'Internal', hue: '#6ba8ff', stage: 7, readiness: 3, live: 'reka-interchange.web.app', roadmap: null, next: 'No roadmap yet: type /soul-roadmap in its chat.' },
+];
+const LADDER = ['not live', 'up, not the app', 'preview', 'internal testing', 'pilot / UAT', 'ready to use', 'in use'];
+const LADDER_C = ['#6b7280', '#ff6b6b', '#c792ff', '#ffb347', '#ffe14d', '#7cff6b', '#4dffe1'];
+const STAGES = ['Spot', 'Shape', 'Agree', 'Pin down', 'Prove', 'Translate', 'Build', 'Deliver', 'Grow'];
+
+const CHATS = [
+  { id: 'c1', project: 'PlusXnergy', name: 'Editions and backend split', state: 'working', model: 'Opus 5.5', ctx: 70, cost: 12.4, since: 'now', done: 6, total: 10, files: 14, commits: 3, handoffs: 2,
+    said: 'Report email settings are wired; next is the D-05 retention job.', doing: 'Edit · reports/schedules.ts',
+    goal: 'Split the Basic and Full editions while keeping one backend.',
+    steps: ['Edition flags', 'Report schedules', 'Email settings', 'Decision settings', 'Retention policy UI', 'D-05 retention job', 'Billing hooks', 'Docs', 'Tests', 'Deploy to staging'] },
+  { id: 'c2', project: 'PlusXnergy', name: 'Fix SLD rendering on Basic', state: 'waiting', model: 'Sonnet 5.5', ctx: 31, cost: 1.9, since: '1h', done: 5, total: 5, files: 4, commits: 1, handoffs: 0,
+    asked: 'Should the MSB single-line diagram use the client’s colours or ours?', goal: 'The single-line diagram breaks on the Basic edition.',
+    steps: ['Reproduce', 'Find the cause', 'Fix the layout', 'Check Basic and Full', 'Screenshot for review'] },
+  { id: 'c3', project: 'NexusTAC', name: 'Live test and handover pack', state: 'working', model: 'Opus 5.5', ctx: 86, cost: 23.7, since: '2m', done: 3, total: 8, files: 22, commits: 5, handoffs: 4,
+    said: 'Library 1.1 reviewed; running the quality loop smoke test in the sandbox.', doing: 'Bash · npm run deploy:functions',
+    goal: 'Finish the live test with a consultant, then hand over to the successor developer.',
+    steps: ['Handover pack', 'System map', 'Re-run functions deploy', 'Quality loop smoke', 'Auth redirect allow-list', 'Full sandbox set', 'Drive API test', 'Tenant sandbox'] },
+  { id: 'c4', project: 'PLExyz', name: 'Gate A readiness pass', state: 'idle', model: 'Opus 5.5', ctx: 77, cost: 31.2, since: '2d', done: 9, total: 9, files: 41, commits: 7, handoffs: 3,
+    said: 'User Guide 1.1 and the product roadmap are committed. Gate A items R-01 to R-08 are listed with owners.', goal: 'Get the product to pilot ready (Gate A).',
+    steps: ['Backups plan', 'Error tracking', 'Password reset', 'Recorded journeys', 'Guide hand pass', 'Readiness re-assessment', 'Webhook replay test', 'Demo organisation', 'Roadmap'] },
+  { id: 'c5', project: 'Yara', name: 'Auth e-mail and pilot codes', state: 'waiting', model: 'Opus 5.5', ctx: 59, cost: 8.3, since: '3h', done: 4, total: 6, files: 9, commits: 4, handoffs: 1,
+    asked: 'Use Resend for the auth e-mails too, or keep invite codes until the pilot ends?', goal: 'Auth e-mails that reach people, before the first client.',
+    steps: ['SMTP provider', 'Templates', 'Invite codes', 'Sign-in test', 'Clear sample data', 'Roadmap update'] },
+  { id: 'c6', project: 'AntaraX Frame', name: 'Merge and deploy', state: 'idle', model: 'Opus 5.5', ctx: 56, cost: 14.0, since: '10h', done: 0, total: 0, files: 18, commits: 6, handoffs: 12,
+    said: 'All twelve reviews are back and merged; deploy finished and the smoke test passed.', goal: 'When all is done, merge and deploy.', steps: [] },
+  { id: 'c7', project: 'REKA internal', name: 'Development Framework', state: 'working', model: 'Opus 5.5', ctx: 31, cost: 35.1, since: 'now', done: 8, total: 10, files: 63, commits: 14, handoffs: 12,
+    said: 'Navigation bar and per-chat progress are next; the mock is being drawn.', doing: 'Write · mocks/soul-engine-v3.html',
+    goal: 'An operating framework and a dashboard for every project and chat.',
+    steps: ['Inventory', 'Souls per project', 'Relay data', 'Soul in Claude Code', 'Status and roadmaps', 'Navigation bar', 'Desktop app', 'Lock and Windows Hello', 'Per-chat progress', 'Redesign'] },
+];
+
+// ---- Inventory: what each project uses, read from its repos (names of keys only, never their values) ----
+const CATS = [
+  ['service', 'Tools'], ['apikey', 'API keys'], ['api', 'APIs called'], ['hosting', 'Hosting'], ['domain', 'Domains'],
+  ['email', 'E-mails'], ['signin', 'Sign-in'], ['job', 'Jobs'], ['default', 'Defaults'],
+];
+const CAT_LABEL = Object.fromEntries(CATS);
+const INVENTORY = [
+  { project: 'PlusXnergy', repo: 'bess-ems-dashboard', cat: 'apikey', label: 'RESEND_API_KEY', value: 'Resend (e-mail)', svc: 'Resend', ev: 'server/src/mail.ts:4' },
+  { project: 'PlusXnergy', repo: 'bess-ems-dashboard', cat: 'apikey', label: 'DATABASE_URL', value: 'Postgres', svc: 'Postgres', ev: '.env.example' },
+  { project: 'PlusXnergy', repo: 'bess-ems-dashboard', cat: 'hosting', label: 'Cloudflare Worker', value: 'bess-ems-dashboard', svc: 'Cloudflare', ev: 'wrangler.jsonc:2' },
+  { project: 'PlusXnergy', repo: 'bess-ems-dashboard', cat: 'job', label: 'Scheduled job', value: 'report e-mails, every 15 min', svc: 'Cloudflare', ev: 'wrangler.jsonc:18' },
+  { project: 'PlusXnergy', repo: 'bess-ems-dashboard', cat: 'email', label: 'Sends from', value: 'reports@reka.re', svc: 'Resend', ev: 'server/src/mail.ts:9' },
+  { project: 'PlusXnergy', repo: 'bess-ems-dashboard', cat: 'api', label: 'Outside API', value: 'api.resend.com', svc: 'Resend', ev: 'server/src/mail.ts:22' },
+  { project: 'NexusTAC', repo: 'iso-generator', cat: 'apikey', label: 'GEMINI_API_KEY', value: 'Google Gemini', svc: 'Google Gemini', ev: 'functions/generate.ts:12' },
+  { project: 'NexusTAC', repo: 'iso-generator', cat: 'apikey', label: 'SUPABASE_SERVICE_ROLE_KEY', value: 'Supabase (server only)', svc: 'Supabase', ev: 'functions/_shared/db.ts:5' },
+  { project: 'NexusTAC', repo: 'iso-generator', cat: 'hosting', label: 'Cloudflare route', value: 'iso.nexustac.reka.tech', svc: 'Cloudflare', ev: 'wrangler.jsonc:9' },
+  { project: 'NexusTAC', repo: 'iso-generator', cat: 'domain', label: 'Custom domain', value: 'axle.nexustac.reka.tech', svc: 'Cloudflare', ev: 'wrangler.jsonc:11' },
+  { project: 'NexusTAC', repo: 'iso-generator', cat: 'signin', label: 'Sign-in', value: 'e-mailed sign-in links', svc: 'Supabase', ev: 'src/auth/Login.tsx:30' },
+  { project: 'NexusTAC', repo: 'iso-generator', cat: 'api', label: 'Outside API', value: 'Google Drive API', svc: 'Google Drive', ev: 'functions/drive.ts:3' },
+  { project: 'PLExyz', repo: 'plexyz-grid', cat: 'apikey', label: 'VITE_SUPABASE_ANON_KEY', value: 'Supabase (public client key)', svc: 'Supabase', ev: 'apps/grid/src/lib/supabase.ts:18' },
+  { project: 'PLExyz', repo: 'plexyz-grid', cat: 'apikey', label: 'STRIPE_SECRET_KEY', value: 'Stripe (test mode)', svc: 'Stripe', ev: 'supabase/functions/billing/index.ts:7' },
+  { project: 'PLExyz', repo: 'plexyz-grid', cat: 'domain', label: 'Domain', value: 'grid.antarax.ai', svc: 'Cloudflare', ev: 'docs/ROADMAP.md:12' },
+  { project: 'PLExyz', repo: 'plexyz-crowd', cat: 'apikey', label: 'RUVIEW_API_TOKEN', value: 'Unknown: check where it is used', svc: 'Unknown', ev: 'worker/src/ruview.ts:5', flag: 'unknown key' },
+  { project: 'PLExyz', repo: 'plexyz-grid', cat: 'email', label: 'Support address', value: 's•••@gmail.com', svc: 'E-mail', ev: 'apps/grid/src/Footer.tsx:40', flag: 'personal address' },
+  { project: 'PLExyz', repo: 'plexyz-grid', cat: 'default', label: 'Region', value: 'Singapore (ap-southeast-1)', svc: 'Supabase', ev: 'supabase/config.toml:3' },
+  { project: 'Yara', repo: 'yara-one', cat: 'apikey', label: 'RESEND_API_KEY', value: 'Resend (e-mail)', svc: 'Resend', ev: 'src/server/mail.ts:6' },
+  { project: 'Yara', repo: 'yara-one', cat: 'hosting', label: 'Cloudflare route', value: 'yo.antarax.ai', svc: 'Cloudflare', ev: 'wrangler.jsonc:7' },
+  { project: 'Yara', repo: 'yara-one', cat: 'signin', label: 'Sign-in', value: 'invite codes (pilot)', svc: 'Own code', ev: 'src/auth/invite.ts:14' },
+  { project: 'Yara', repo: 'yara-one', cat: 'service', label: 'Storage', value: 'Cloudflare R2', svc: 'Cloudflare', ev: 'wrangler.jsonc:24' },
+  { project: 'AntaraX Frame', repo: 'axframe', cat: 'apikey', label: 'OPENAI_API_KEY', value: 'OpenAI (tests only)', svc: 'OpenAI', ev: 'tests/fixtures/env.ts:3', flag: 'tests only' },
+  { project: 'AntaraX Frame', repo: 'axframe', cat: 'hosting', label: 'Vercel', value: 'antarax-frame.vercel.app', svc: 'Vercel', ev: 'vercel.json' },
+  { project: 'AntaraX Frame', repo: 'axframe', cat: 'apikey', label: 'RESEND_API_KEY', value: 'Resend (e-mail)', svc: 'Resend', ev: 'lib/mail.ts:3' },
+  { project: 'REKA internal', repo: 'reka-interchange', cat: 'hosting', label: 'Firebase Hosting', value: 'reka-interchange.web.app', svc: 'Firebase', ev: 'firebase.json' },
+  { project: 'REKA internal', repo: 'reka-interchange', cat: 'apikey', label: 'RESEND_API_KEY', value: 'Resend (e-mail)', svc: 'Resend', ev: 'functions/src/notify.ts:8' },
+  { project: 'REKA internal', repo: 'reka-interchange', cat: 'job', label: 'CI', value: 'GitHub Actions: test and deploy', svc: 'GitHub', ev: '.github/workflows/deploy.yml' },
+];
+const INV_CHANGES = [
+  ['+', 'PlusXnergy', 'API key RESEND_API_KEY (Resend)', '2d'],
+  ['+', 'NexusTAC', 'Outside API Google Drive', '4d'],
+  ['−', 'Yara', 'Sign-in: magic links replaced by invite codes', '5d'],
+];
+let invQ = '', invCat = 'all', invGroup = 'project';
+
+function invFacts() {
+  const words = invQ.toLowerCase().split(/\s+/).filter(Boolean);
+  return INVENTORY.filter((f) => (!scope || f.project === scope) && (invCat === 'all' || f.cat === invCat)
+    && words.every((w) => `${f.project} ${f.repo} ${CAT_LABEL[f.cat]} ${f.label} ${f.value} ${f.svc} ${f.ev}`.toLowerCase().includes(w)));
+}
+function factRow(f, showProject) {
+  const p = P(f.project);
+  const isKey = f.cat === 'apikey';
+  return `<div class="fact">
+    <span class="cat-dot c-${f.cat}" title="${CAT_LABEL[f.cat]}"></span>
+    <div style="min-width:0"><div class="fact-label">${esc(f.label)}${f.flag ? ` <span class="pill p-wait" style="margin-left:6px">${esc(f.flag)}</span>` : ''}</div>
+      <div class="tiny muted">${esc(f.value)}${showProject ? ` · <span style="color:${p.hue}">${esc(f.project)}</span>` : ''}</div></div>
+    <span class="code dim fact-ev">${esc(f.repo)}/${esc(f.ev)}</span>
+    ${isKey ? `<button type="button" class="ghost" data-copytext="Rotation checklist for ${esc(f.label)}: every repo, CI secret and host that uses it.">Rotation</button>` : '<span></span>'}
+  </div>`;
+}
+function invList() {
+  const facts = invFacts();
+  if (!facts.length) return `<div class="glass empty">Nothing matches “${esc(invQ)}”. Try a service (resend), a key (SERVICE_ROLE), a domain or an address.</div>`;
+  if (invGroup === 'service') {
+    const svcs = [...new Set(facts.map((f) => f.svc))].sort((a, b) => facts.filter((f) => f.svc === b).length - facts.filter((f) => f.svc === a).length);
+    return svcs.map((s) => {
+      const fs = facts.filter((f) => f.svc === s);
+      const projects = [...new Set(fs.map((f) => f.project))];
+      return `<section class="glass invcard"><div class="invhead"><span class="avatar" style="--hue:#34d399">${esc(s[0])}</span><div><div class="pname" style="font-size:15px">${esc(s)}</div>
+        <div class="tiny muted">used by ${projects.length} project${projects.length === 1 ? '' : 's'}: ${projects.map((n) => `<span style="color:${P(n).hue}">${esc(n)}</span>`).join(', ')}</div></div></div>
+        ${fs.map((f) => factRow(f, true)).join('')}</section>`;
+    }).join('');
+  }
+  const projects = [...new Set(facts.map((f) => f.project))];
+  return projects.map((n) => {
+    const p = P(n), fs = facts.filter((f) => f.project === n);
+    const repos = [...new Set(fs.map((f) => f.repo))];
+    return `<section class="glass invcard"><div class="invhead"><span class="avatar" style="--hue:${p.hue}">${esc(n[0])}</span><div><div class="pname" style="font-size:15px">${esc(n)}</div>
+      <div class="tiny muted">${repos.length} repo${repos.length === 1 ? '' : 's'} · ${fs.length} facts</div></div>
+      <button type="button" class="ghost" style="margin-left:auto" data-copytext="Draft the Access Register for ${esc(n)} from its inventory.">Access Register</button></div>
+      ${repos.map((r) => `<div class="tiny dim repo-sub">${esc(r)}</div>${fs.filter((f) => f.repo === r).map((f) => factRow(f, false)).join('')}`).join('')}</section>`;
+  }).join('');
+}
+function renderInventoryBody() {
+  const all = INVENTORY.filter((f) => !scope || f.project === scope);
+  const count = (c) => all.filter((f) => f.cat === c).length;
+  const attention = all.filter((f) => f.flag);
+  const shared = [...new Set(all.filter((f) => f.cat === 'apikey').map((f) => f.label))].filter((k) => all.filter((f) => f.label === k).length > 2);
+  return `<div class="tiles">
+      <div class="glass tile"><small>API keys (names)</small><b>${count('apikey')}</b></div>
+      <div class="glass tile"><small>Outside APIs</small><b>${count('api')}</b></div>
+      <div class="glass tile"><small>Hosting and domains</small><b>${count('hosting') + count('domain')}</b></div>
+      <div class="glass tile"><small>E-mail addresses</small><b>${count('email')}</b></div>
+      <div class="glass tile warn"><small>Needs a look</small><b>${attention.length + shared.length}</b></div>
+    </div>
+    <div class="invbar">
+      <div class="search"><span class="dim">⌕</span><label for="invq" class="sr">Search the inventory</label><input id="invq" value="${esc(invQ)}" placeholder="Search: resend, gemini, noreply, antarax.ai, cron…" autocomplete="off"></div>
+      <div class="seg" role="group" aria-label="Group by"><button type="button" aria-pressed="${invGroup === 'project'}" data-invgroup="project">By project</button><button type="button" aria-pressed="${invGroup === 'service'}" data-invgroup="service">By service</button></div>
+    </div>
+    <div class="chiprow"><button type="button" class="fchip" aria-pressed="${invCat === 'all'}" data-invcat="all">All <span>${all.length}</span></button>${CATS.filter(([c]) => count(c)).map(([c, l]) => `<button type="button" class="fchip" aria-pressed="${invCat === c}" data-invcat="${c}"><i class="cat-dot c-${c}"></i>${l} <span>${count(c)}</span></button>`).join('')}</div>
+    <div class="invgrid">
+      <div id="invList">${invList()}</div>
+      <aside>
+        <section class="glass box"><div class="label">Needs a look</div>
+          ${attention.map((f) => `<div class="side-row"><span class="pill p-wait">${esc(f.flag)}</span><div class="small">${esc(f.label)} <span class="dim">· ${esc(f.project)}</span></div></div>`).join('')}
+          ${shared.map((k) => `<div class="side-row"><span class="pill p-idle">in ${all.filter((f) => f.label === k).length} repos</span><div class="small">${esc(k)} <span class="dim">· rotate together</span></div></div>`).join('')}
+        </section>
+        <section class="glass box"><div class="label">Changes this week</div>
+          ${INV_CHANGES.filter((c) => !scope || c[1] === scope).map((c) => `<div class="side-row"><span class="${c[0] === '+' ? 'plus' : 'minus'}">${c[0]}</span><div class="small">${esc(c[2])}<div class="tiny dim">${esc(c[1])} · ${c[3]} ago</div></div></div>`).join('') || '<p class="small dim">No changes.</p>'}
+        </section>
+        <section class="glass box"><div class="label">Documents</div>
+          <button type="button" class="doc" data-copytext="Draft the Access Register for ${esc(scope ?? 'every project')}.">Access and Account Register</button>
+          <button type="button" class="doc" data-copytext="Build the rotation checklist for RESEND_API_KEY.">Key rotation checklist</button>
+          <button type="button" class="doc" data-copytext="Summarise what changed in the inventory over the last 30 days.">30-day change report</button>
+        </section>
+      </aside>
+    </div>`;
+}
+function renderInventory() {
+  return `<div class="head"><h1>Inventory</h1><span class="s">${scope ? esc(scope) : 'every project'} · tools, keys by name, APIs, hosting, addresses, sign-in, jobs · secret values are never read</span></div>${renderInventoryBody()}`;
+}
+
+// ---- Tasks: one board of what is left, from roadmaps, chat plans and the soul's suggestions ----
+const TASKS = [
+  { id: 't1', title: 'D-05 retention job', project: 'PlusXnergy', src: 'plan', ref: 'step 6 of 10', status: 'doing', chat: 'c1', model: 'opus', where: 'this chat' },
+  { id: 't2', title: 'Write the docs for the editions split', project: 'PlusXnergy', src: 'soul', ref: 'plan step 8', status: 'todo', chat: 'c1', model: 'haiku', where: 'delegate', saving: 0.9, why: 'Plain writing, no tools needed' },
+  { id: 't3', title: 'Staging on paid plans, or slow its jobs to every 15 minutes', project: 'PlusXnergy', src: 'roadmap', ref: 'tracker', status: 'blocked', model: 'opus', where: 'this chat', owner: 'Project Lead', blocker: 'Needs a decision on hosting cost' },
+  { id: 't4', title: 'Choose colours for the single-line diagram', project: 'PlusXnergy', src: 'plan', ref: 'asked you', status: 'blocked', chat: 'c2', model: 'sonnet', where: 'this chat', blocker: 'Waiting for your answer' },
+  { id: 't5', title: 'Re-run the functions deploy', project: 'NexusTAC', src: 'roadmap', ref: '1.1', status: 'doing', chat: 'c3', model: 'opus', where: 'this chat', owner: 'Developer' },
+  { id: 't6', title: 'Auth redirect allow-list for e-mailed links', project: 'NexusTAC', src: 'roadmap', ref: '1.2', status: 'todo', model: 'sonnet', where: 'new chat', owner: 'Developer', why: 'A contained fix in its own branch' },
+  { id: 't7', title: 'Find every place the old prompt version is read', project: 'NexusTAC', src: 'soul', ref: 'suggestion', status: 'todo', chat: 'c3', model: 'haiku', where: 'Haiku worker', saving: 1.6, why: 'Read-only search' },
+  { id: 't8', title: 'Backups: point-in-time recovery and one timed restore drill', project: 'PLExyz', src: 'roadmap', ref: 'R-01', status: 'blocked', model: 'opus', where: 'this chat', owner: 'Project Lead', due: 'Nov 2026', blocker: 'Needs the paid database plan' },
+  { id: 't9', title: 'Error tracking with alerts to a named owner', project: 'PLExyz', src: 'roadmap', ref: 'R-02', status: 'todo', model: 'sonnet', where: 'new chat', owner: 'Developer', due: 'Nov 2026' },
+  { id: 't10', title: 'Webhook replay and double-submit test', project: 'PLExyz', src: 'roadmap', ref: 'R-07', status: 'done', model: 'sonnet', where: 'new chat', owner: 'QA' },
+  { id: 't11', title: 'Clear the sample data on the hosted workspace', project: 'Yara', src: 'roadmap', ref: 'owner action', status: 'todo', model: 'haiku', where: 'Haiku worker', owner: 'Owner', why: 'A scripted, mechanical step' },
+  { id: 't12', title: 'Resend for auth e-mails, or invite codes until the pilot ends', project: 'Yara', src: 'plan', ref: 'asked you', status: 'blocked', chat: 'c5', model: 'opus', where: 'this chat', blocker: 'Waiting for your answer' },
+  { id: 't13', title: 'Write the product roadmap (docs/ROADMAP.md)', project: 'AntaraX Frame', src: 'soul', ref: 'no roadmap', status: 'todo', model: 'opus', where: 'this chat', why: 'Run /soul-roadmap in its chat' },
+  { id: 't14', title: 'Per-chat progress in the dashboard', project: 'REKA internal', src: 'plan', ref: 'step 9 of 10', status: 'doing', chat: 'c7', model: 'opus', where: 'this chat' },
+  { id: 't15', title: 'Summarise the merged reviews into release notes', project: 'AntaraX Frame', src: 'soul', ref: 'suggestion', status: 'todo', chat: 'c6', model: 'haiku', where: 'delegate', saving: 0.7, why: 'Plain writing' },
+  { id: 't16', title: 'User Guide 1.1 and FAQ', project: 'PLExyz', src: 'roadmap', ref: 'done', status: 'done', model: 'sonnet', where: 'new chat', owner: 'Developer' },
+];
+const SRC_LABEL = { roadmap: 'Roadmap', plan: 'Chat plan', soul: 'Soul suggests' };
+const MODEL_C = { opus: '#c4b5fd', sonnet: '#93c5fd', haiku: '#5eead4' };
+let taskSrc = 'all', taskMode = 'board';
+
+function instructionFor(t) {
+  if (t.where === 'delegate') return `Use the delegate tool (model haiku) for: ${t.title}. Pass it everything it needs, then check the result.`;
+  if (t.where === 'Haiku worker') return `Use the Agent tool with subagent_type "soul-relay:haiku-worker" to: ${t.title}. Ask for a short report with file paths.`;
+  if (t.where === 'new chat') return `Open a new ${t.project} chat on Sonnet in its own worktree branch and paste: "${t.title}. Commit on this branch and report back."`;
+  return null;
+}
+function taskCard(t) {
+  const p = P(t.project), c = t.chat ? CHATS.find((x) => x.id === t.chat) : null, ins = instructionFor(t);
+  return `<article class="glass task">
+    <div class="task-top"><span class="avatar sm" style="--hue:${p.hue}">${esc(t.project[0])}</span><span class="tiny" style="color:${p.hue}">${esc(t.project)}</span>
+      ${c && SPLITS[c.id] ? `<span class="srcpill s-split" title="This chat split its work">split ×${SPLITS[c.id].length}</span>` : ''}<span class="srcpill s-${t.src}">${SRC_LABEL[t.src]}${t.ref ? ` · ${esc(t.ref)}` : ''}</span></div>
+    <div class="task-title">${esc(t.title)}</div>
+    ${t.blocker ? `<div class="tiny" style="color:var(--wait)">${esc(t.blocker)}</div>` : ''}
+    ${t.why ? `<div class="tiny muted">${esc(t.why)}${t.saving ? ` · saves ≈ $${t.saving.toFixed(2)}` : ''}</div>` : ''}
+    <div class="task-foot">
+      <span class="model" style="--m:${MODEL_C[t.model]}">${t.model}</span><span class="tiny muted">${esc(t.where)}</span>
+      ${t.owner ? `<span class="tiny dim">· ${esc(t.owner)}</span>` : ''}${t.due ? `<span class="tiny dim">· ${esc(t.due)}</span>` : ''}
+      <span style="margin-left:auto;display:flex;gap:6px">
+        ${c ? `<button type="button" class="ghost" data-chat="${c.id}">Open chat</button>` : ''}
+        ${ins && t.status !== 'done' ? `<button type="button" class="copy sm" data-copytext="${esc(ins)}">Copy instruction</button>` : ''}
+      </span>
+    </div>
+  </article>`;
+}
+function renderTaskBoard(projectOnly) {
+  const list = TASKS.filter((t) => (!(projectOnly ?? scope) || t.project === (projectOnly ?? scope)) && (taskSrc === 'all' || t.src === taskSrc));
+  const cheap = list.filter((t) => t.status === 'todo' && t.model !== 'opus' && t.where !== 'this chat');
+  const save = cheap.reduce((n, t) => n + (t.saving ?? 0), 0);
+  const cols = [['todo', 'To do', 'var(--muted)'], ['doing', 'In progress', 'var(--work)'], ['blocked', 'Blocked', 'var(--wait)'], ['done', 'Done', 'var(--done)']];
+  const strip = cheap.length ? `<div class="glass suggest"><span class="avatar sm" style="--hue:#34d399">✦</span><div class="small"><b>${cheap.length} tasks could run on cheaper models now</b><span class="muted"> · ${cheap.map((t) => esc(t.title)).slice(0, 2).join(' · ')}${cheap.length > 2 ? ' …' : ''}</span></div><span class="pill p-work" style="margin-left:auto">≈ $${save.toFixed(2)} saved</span></div>` : '';
+  const filters = `<div class="chiprow">${['all', 'roadmap', 'plan', 'soul'].map((s) => `<button type="button" class="fchip" aria-pressed="${taskSrc === s}" data-tasksrc="${s}">${s === 'all' ? 'All' : SRC_LABEL[s]} <span>${TASKS.filter((t) => (!(projectOnly ?? scope) || t.project === (projectOnly ?? scope)) && (s === 'all' || t.src === s)).length}</span></button>`).join('')}
+    <span style="margin-left:auto" class="seg" role="group" aria-label="View"><button type="button" aria-pressed="${taskMode === 'board'}" data-taskmode="board">Board</button><button type="button" aria-pressed="${taskMode === 'list'}" data-taskmode="list">List</button></span></div>`;
+  if (taskMode === 'list') {
+    return `${strip}${filters}<div class="glass scroll"><table><thead><tr><th>Task</th><th>Project</th><th>From</th><th>Status</th><th>Model · where</th><th>Owner</th><th>Due</th></tr></thead><tbody>
+      ${list.map((t) => `<tr><td style="color:var(--text)">${esc(t.title)}</td><td style="color:${P(t.project).hue}">${esc(t.project)}</td><td class="muted">${SRC_LABEL[t.src]}${t.ref ? ` · ${esc(t.ref)}` : ''}</td>
+        <td>${{ todo: '<span class="pill p-idle">to do</span>', doing: '<span class="pill p-work">in progress</span>', blocked: '<span class="pill p-wait">blocked</span>', done: '<span class="pill p-done">done</span>' }[t.status]}</td>
+        <td><span class="model" style="--m:${MODEL_C[t.model]}">${t.model}</span> <span class="tiny muted">${esc(t.where)}</span></td><td class="muted">${esc(t.owner ?? '—')}</td><td class="muted">${esc(t.due ?? '—')}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+  return `${strip}${filters}<div class="kanban">${cols.map(([s, l, color]) => {
+    const ts = list.filter((t) => t.status === s);
+    return `<div class="kcol"><h2><span class="dot" style="background:${color}"></span>${l} <span class="count">${ts.length}</span></h2>${ts.map(taskCard).join('') || '<p class="small dim" style="padding:4px 2px">Nothing here.</p>'}</div>`;
+  }).join('')}</div>`;
+}
+function renderTasks() {
+  return `<div class="head"><h1>Tasks</h1><span class="s">${scope ? esc(scope) : 'every project'} · from roadmaps, chat plans and the soul's suggestions · nothing is sent for you</span></div>${renderTaskBoard()}`;
+}
+
+// ---- Live topology: when a chat splits work across other chats and models, and when the results merge back ----
+// In the real app this is fed by the hub's 2-second transcript feed (Agent and delegate calls, worker sessions).
+const SPLITS = {
+  c1: [
+    { id: 's1', label: 'Find every report job', model: 'haiku', kind: 'Haiku worker', status: 'returned', took: '1m 40s', cost: 0.04 },
+    { id: 's2', label: 'Write tests for the split', model: 'sonnet', kind: 'Second chat · branch tests', status: 'running', took: '6m', cost: 0.62 },
+    { id: 's3', label: 'Draft the editions docs', model: 'haiku', kind: 'Delegate', status: 'queued', took: '', cost: 0 },
+  ],
+  c3: [
+    { id: 's4', label: 'Audit the handover pack', model: 'opus', kind: 'Explore sub-agent', status: 'returned', took: '2m', cost: 0.48 },
+    { id: 's5', label: 'Check every procedure link', model: 'haiku', kind: 'Haiku worker', status: 'running', took: '3m', cost: 0.05 },
+    { id: 's6', label: 'Re-run the smoke test', model: 'sonnet', kind: 'Sonnet worker', status: 'running', took: '4m', cost: 0.31 },
+    { id: 's7', label: 'Summarise the findings', model: 'haiku', kind: 'Delegate', status: 'queued', took: '', cost: 0 },
+  ],
+  c7: [
+    { id: 's8', label: 'Verify plugin mechanics', model: 'haiku', kind: 'Guide sub-agent', status: 'returned', took: '2m', cost: 0.16 },
+    { id: 's9', label: 'Render the panel with real data', model: 'sonnet', kind: 'Sonnet worker', status: 'running', took: '1m', cost: 0.08 },
+  ],
+};
+const TOPO_LOG = [
+  ['11:41', 'c3', 'Live test and handover pack split “Re-run the smoke test” to a Sonnet worker'],
+  ['11:39', 'c1', 'Find every report job came back from Haiku and merged into Editions and backend split'],
+  ['11:36', 'c1', 'Editions and backend split opened a second chat on Sonnet for the tests (branch tests)'],
+  ['11:33', 'c3', 'Audit the handover pack came back from an Opus sub-agent'],
+];
+const nowClock = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+
+/** One cluster: the main chat in the middle, each split around it, lines that flow out while running and back when merged. */
+function topologySVG(chatId, big) {
+  const c = CHATS.find((x) => x.id === chatId), p = P(c.project), kids = SPLITS[chatId] ?? [];
+  const W = big ? 760 : 380, H = big ? 360 : 230, cx = W / 2, cy = H / 2, R = big ? 150 : 92;
+  const n = kids.length;
+  const pos = kids.map((_, i) => { const a = -Math.PI / 2 + (Math.PI * 2 * (i + 0.5)) / n; return [cx + Math.cos(a) * R * (big ? 1.9 : 1.3), cy + Math.sin(a) * R * (big ? 0.85 : 0.8)]; });
+  const nodeR = big ? 30 : 20, mainR = big ? 40 : 27;
+  const edges = kids.map((k, i) => {
+    const [x, y] = pos[i], col = MODEL_C[k.model];
+    const cls = k.status === 'running' ? 'edge run' : k.status === 'returned' ? 'edge back' : 'edge queued';
+    const d = `M${cx},${cy} Q${(cx + x) / 2},${(cy + y) / 2 - (big ? 30 : 16)} ${x},${y}`;
+    return `<path d="${d}" class="${cls}" style="--c:${k.status === 'returned' ? 'var(--done)' : col}"/>`;
+  }).join('');
+  const nodes = kids.map((k, i) => {
+    const [x, y] = pos[i], col = MODEL_C[k.model];
+    // Keep each label inside the drawing, even for nodes at the edges.
+    const lim = big ? 120 : 62, lx = Math.min(Math.max(x, lim), W - lim), ly = y + nodeR + (big ? 18 : 13);
+    return `<g class="tnode ${k.status}">
+      <circle cx="${x}" cy="${y}" r="${nodeR}" style="fill:color-mix(in srgb, ${col} 16%, #0e1626);stroke:${k.status === 'returned' ? 'var(--done)' : col}"/>
+      <text x="${x}" y="${y + 4}" text-anchor="middle" class="tmodel" style="fill:${col}">${k.model}</text>
+      ${k.status === 'running' ? `<circle cx="${x}" cy="${y}" r="${nodeR + 6}" class="ring" style="stroke:${col}"/>` : ''}
+      <text x="${lx}" y="${ly}" text-anchor="middle" class="tlabel">${esc(k.label.length > (big ? 30 : 18) ? k.label.slice(0, big ? 29 : 17) + '…' : k.label)}</text>
+      ${big ? `<text x="${lx}" y="${ly + 15}" text-anchor="middle" class="tsub">${esc(k.kind)} · ${k.status === 'returned' ? 'merged ↩' : k.status}</text>` : ''}
+    </g>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" class="topo" role="img" aria-label="${esc(c.name)} split into ${n} tasks">
+    <title>${esc(c.name)}: ${kids.filter((k) => k.status === 'running').length} running, ${kids.filter((k) => k.status === 'returned').length} merged, ${kids.filter((k) => k.status === 'queued').length} queued</title>
+    ${edges}
+    <circle cx="${cx}" cy="${cy}" r="${mainR + 10}" style="fill:${p.hue};opacity:0.08"/>
+    <circle cx="${cx}" cy="${cy}" r="${mainR}" style="fill:color-mix(in srgb, ${p.hue} 22%, #0e1626);stroke:${p.hue};stroke-width:2"/>
+    <text x="${cx}" y="${cy - 2}" text-anchor="middle" class="tmain">${esc(c.model.split(' ')[0])}</text>
+    <text x="${cx}" y="${cy + 12}" text-anchor="middle" class="tsub" style="fill:${p.hue}">main chat</text>
+    ${nodes}
+  </svg>`;
+}
+function topoSummary(chatId) {
+  const kids = SPLITS[chatId] ?? [];
+  const r = kids.filter((k) => k.status === 'running').length, m = kids.filter((k) => k.status === 'returned').length, q = kids.filter((k) => k.status === 'queued').length;
+  return `${kids.length} split${kids.length === 1 ? '' : 's'} · <span style="color:var(--work)">${r} running</span> · <span style="color:var(--done)">${m} merged</span>${q ? ` · ${q} queued` : ''}`;
+}
+function renderLiveTopology() {
+  const live = Object.keys(SPLITS).filter((id) => { const c = CHATS.find((x) => x.id === id); return inScope(c); });
+  if (!live.length) return '';
+  return `<section class="glass livetopo">
+    <div class="lt-head"><span class="livedot"></span><b>Live splits</b><span class="tiny muted">which chats split work across models right now, and what merged back</span>
+      <span class="legend"><i style="--c:#c4b5fd"></i>Opus<i style="--c:#93c5fd"></i>Sonnet<i style="--c:#5eead4"></i>Haiku<i class="back"></i>merged</span></div>
+    <div class="lt-body">
+      <div class="clusters" id="clusters">${live.map((id) => { const c = CHATS.find((x) => x.id === id); return `<button type="button" class="cluster" data-chat="${id}">${topologySVG(id, false)}<div class="small" style="font-weight:500">${esc(c.name)}</div><div class="tiny muted">${esc(c.project)} · ${topoSummary(id)}</div></button>`; }).join('')}</div>
+      <ol class="eventlog" id="eventlog">${TOPO_LOG.filter((e) => inScope(CHATS.find((x) => x.id === e[1]))).slice(0, 7).map((e) => `<li><span class="dim">${e[0]}</span><span>${esc(e[2])}</span></li>`).join('')}</ol>
+    </div>
+  </section>`;
+}
+
+// Simulated feed for the mock: a split starts, runs, and merges back every few seconds.
+setInterval(() => {
+  const all = Object.entries(SPLITS).flatMap(([cid, ks]) => ks.map((k) => ({ cid, k })));
+  const running = all.filter((x) => x.k.status === 'running'), queued = all.filter((x) => x.k.status === 'queued');
+  let event;
+  if (queued.length && (Math.random() < 0.5 || !running.length)) {
+    const x = queued[Math.floor(Math.random() * queued.length)]; x.k.status = 'running';
+    event = [nowClock(), x.cid, `${CHATS.find((c) => c.id === x.cid).name} handed “${x.k.label}” to ${x.k.model[0].toUpperCase() + x.k.model.slice(1)} (${x.k.kind.toLowerCase()})`];
+  } else if (running.length) {
+    const x = running[Math.floor(Math.random() * running.length)]; x.k.status = 'returned';
+    event = [nowClock(), x.cid, `“${x.k.label}” came back from ${x.k.model[0].toUpperCase() + x.k.model.slice(1)} and merged into ${CHATS.find((c) => c.id === x.cid).name}`];
+  } else {
+    all.forEach((x, i) => { x.k.status = i % 3 === 0 ? 'running' : 'queued'; });
+    event = [nowClock(), 'c1', 'New plan: work split again across Sonnet and Haiku'];
+  }
+  TOPO_LOG.unshift(event); TOPO_LOG.length = Math.min(TOPO_LOG.length, 30);
+  // Redraw only the live parts, so nothing else on the page jumps.
+  const cl = document.getElementById('clusters');
+  if (cl) cl.innerHTML = Object.keys(SPLITS).filter((id) => inScope(CHATS.find((x) => x.id === id))).map((id) => { const c = CHATS.find((x) => x.id === id); return `<button type="button" class="cluster" data-chat="${id}">${topologySVG(id, false)}<div class="small" style="font-weight:500">${esc(c.name)}</div><div class="tiny muted">${esc(c.project)} · ${topoSummary(id)}</div></button>`; }).join('');
+  const lg = document.getElementById('eventlog');
+  if (lg) lg.innerHTML = TOPO_LOG.filter((e) => inScope(CHATS.find((x) => x.id === e[1]))).slice(0, 7).map((e, i) => `<li class="${i === 0 ? 'fresh' : ''}"><span class="dim">${e[0]}</span><span>${esc(e[2])}</span></li>`).join('');
+  const big = document.getElementById('bigtopo');
+  if (big) { big.innerHTML = topologySVG(big.dataset.chat, true); const s = document.getElementById('bigsum'); if (s) s.innerHTML = topoSummary(big.dataset.chat); }
+}, 3500);
+
+// ---- Each chat in its project's context: stage, readiness, roadmap, and what is next ----
+const chatNext = (c) => c.asked ? 'Answer its question' : c.steps[c.done] ? `${c.steps[c.done]} (step ${c.done + 1} of ${c.total})` : c.state === 'idle' ? 'Finished: nothing left in its plan' : 'No plan: ask it what is next';
+function roadmapChip(p, c) {
+  if (p.roadmap) return `<span class="rm-chip">Roadmap ${p.roadmap[0]}/${p.roadmap[1]}</span>`;
+  return `<span class="rm-chip none">No roadmap</span>${c ? `<button type="button" class="ghost" data-trigger="${c.id}">Ask this chat to write it</button>` : ''}`;
+}
+function projectContext(c) {
+  const p = P(c.project);
+  return `<section class="glass ctxpanel" style="--hue:${p.hue}">
+    <div class="ctx-cell"><div class="label">Working on</div><div style="display:flex;gap:10px;align-items:center;margin-top:6px"><span class="avatar" style="--hue:${p.hue}">${esc(p.name[0])}</span><div><div style="font-weight:600">${esc(p.name)}</div><div class="tiny muted">${p.kind} · ${CHATS.filter((x) => x.project === p.name).length} chats</div></div></div></div>
+    <div class="ctx-cell"><div class="label">Stage</div><div style="margin-top:8px">${stageTrack(p)}</div></div>
+    <div class="ctx-cell"><div class="label">Readiness</div><div style="margin-top:8px">${readinessCell(p)}</div></div>
+    <div class="ctx-cell"><div class="label">Roadmap</div><div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">${roadmapChip(p, c)}</div>
+      ${p.roadmap ? `<div class="tiny muted" style="margin-top:6px">${p.roadmap[2] ? `${p.roadmap[2]} blocked · ` : ''}from docs/ROADMAP.md</div>` : '<div class="tiny muted" style="margin-top:6px">This chat can draft docs/ROADMAP.md from the project’s plans.</div>'}</div>
+    <div class="ctx-cell"><div class="label">What’s next</div>
+      <div class="small" style="margin-top:6px"><span class="muted">This chat:</span> ${esc(chatNext(c))}</div>
+      <div class="small" style="margin-top:4px"><span class="muted">Project:</span> ${esc(p.next)}</div></div>
+  </section>`;
+}
+
+// Sending into a chat is an action in your real sessions: always show the message and confirm first.
+let sendTo = null;
+function openSend(chatId) {
+  const c = CHATS.find((x) => x.id === chatId), p = P(c.project);
+  sendTo = chatId;
+  document.getElementById('sendTitle').textContent = `Ask “${c.name}” to write the ${p.name} roadmap`;
+  document.getElementById('sendMsg').value = `/soul-roadmap\n\nPlease draft docs/ROADMAP.md for ${p.name} in the REKA format, from its plans, build plans and readiness notes. Show me the draft before writing the file, then commit it.`;
+  document.getElementById('sendState').textContent = c.state === 'working' ? 'This chat is working: the message waits until its current turn ends.' : c.state === 'waiting' ? 'This chat is waiting for your answer to another question; it will see this message next.' : 'This chat is idle and will start on it straight away.';
+  document.getElementById('sendBox').hidden = false;
+  document.getElementById('sendMsg').focus();
+}
+function closeSend() { document.getElementById('sendBox').hidden = true; sendTo = null; }
+function toast(text) {
+  const t = document.getElementById('toast'); t.textContent = text; t.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, 4200);
+}
+
+// ---- State ----
+let view = 'projects', scope = null, openChat = null, projectPage = null, projectTab = 'Chats';
+const openSet = new Set(['PlusXnergy']);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const P = (n) => PROJECTS.find((p) => p.name === n);
+const inScope = (c) => !scope || c.project === scope;
+const statePill = (s) => s === 'working' ? '<span class="pill p-work pulse">working</span>' : s === 'waiting' ? '<span class="pill p-wait">waiting for you</span>' : '<span class="pill p-idle">idle</span>';
+
+function stageTrack(p) {
+  return `<div><div class="track">${STAGES.map((_, i) => `<span style="background:${i + 1 < p.stage ? p.hue + '88' : i + 1 === p.stage ? p.hue : ''};${i + 1 === p.stage ? `box-shadow:0 0 8px ${p.hue}` : ''}"></span>`).join('')}</div>
+    <div class="small" style="margin-top:4px"><span style="color:${p.hue}">0${p.stage} ${STAGES[p.stage - 1]}</span> <span class="dim">· estimated</span></div></div>`;
+}
+function readinessCell(p) {
+  const c = LADDER_C[p.readiness];
+  return `<div><div class="track">${LADDER.map((_, i) => `<span style="background:${i <= p.readiness ? c + (i === p.readiness ? '' : '77') : ''}"></span>`).join('')}</div>
+    <div class="small" style="margin-top:4px"><span style="color:${c}">${LADDER[p.readiness]}</span> <span class="dim">· ${p.verdict ? 'your verdict' : 'from stage'}</span></div>
+    ${p.verdict ? `<div class="tiny muted">“${esc(p.verdict)}”</div>` : ''}</div>`;
+}
+function progress(done, total, hue) {
+  if (!total) return '<span class="tiny dim">no plan or to-do list</span>';
+  return `<div class="bar"><i style="width:${Math.round(done / total * 100)}%;background:${hue}"></i></div>`;
+}
+
+function chatRow(c) {
+  const p = P(c.project);
+  const steps = c.total ? `${c.done} of ${c.total} steps` : 'no plan';
+  return `<div class="chat" tabindex="0" data-chat="${c.id}">
+    <span class="dot" style="background:${c.state === 'idle' ? '#3b4250' : c.state === 'waiting' ? 'var(--gold)' : p.hue}"></span>
+    <div style="min-width:0"><div class="cname">${esc(c.name)}</div><div class="tiny dim">${c.model} · ctx ${c.ctx}% · ${c.since === 'now' ? 'active now' : c.since + ' ago'}</div></div>
+    <div style="min-width:0"><div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">${statePill(c.state)}<span class="tiny muted">${steps}</span></div>${progress(c.done, c.total, p.hue)}</div>
+    <div style="min-width:0">${c.asked ? `<div class="said ask">Asked you: “${esc(c.asked)}”</div>` : `<div class="said">${c.doing ? `<span style="color:var(--cyan);font-style:normal">${esc(c.doing)}</span> · ` : ''}Last said: “${esc(c.said)}”</div>`}</div>
+    <div class="right tiny muted">${c.files} files · ${c.commits} commits<br>${c.handoffs ? c.handoffs + ' hand-offs · ' : ''}$${c.cost.toFixed(2)}</div>
+  </div>`;
+}
+
+function renderProjects() {
+  const list = PROJECTS.filter((p) => !scope || p.name === scope);
+  return `<div class="head"><h1>Projects</h1><span class="s">${list.length} projects · ${CHATS.filter(inScope).length} chats · click a project to see its chats</span></div>
+  <div class="sectionhead label"><span></span><span>Project</span><span>Stage</span><span>Readiness</span><span>Next</span></div>
+  ${list.map((p) => {
+    const chats = CHATS.filter((c) => c.project === p.name);
+    const open = openSet.has(p.name) || !!scope;
+    const waiting = chats.filter((c) => c.state === 'waiting').length;
+    return `<section class="glass project ${open ? 'open' : ''}" style="--hue:${p.hue}">
+      <div class="project-top" tabindex="0" data-toggle="${esc(p.name)}" aria-expanded="${open}">
+        <span class="chev">▸</span>
+        <div style="min-width:0;display:flex;gap:12px;align-items:center"><span class="avatar" style="--hue:${p.hue}">${esc(p.name[0])}</span><div style="min-width:0"><div class="pname">${esc(p.name)} <a href="#" data-page="${esc(p.name)}">open</a></div>
+          <div class="tiny dim">${p.kind} · ${chats.length} chat${chats.length === 1 ? '' : 's'}${waiting ? ` · <span style="color:var(--gold)">${waiting} waiting for you</span>` : ''}${p.roadmap ? ` · roadmap ${p.roadmap[0]}/${p.roadmap[1]}` : ''}</div></div></div>
+        ${stageTrack(p)}
+        ${readinessCell(p)}
+        <div class="small" style="min-width:0">${esc(p.next)}${!p.roadmap && chats[0] ? `<div><button type="button" class="ghost" style="margin-left:-12px" data-trigger="${chats[0].id}">Ask “${esc(chats[0].name)}” to write it</button></div>` : ''}<div class="tiny dim" style="margin-top:2px">● ${esc(p.live)}</div></div>
+      </div>
+      ${open ? `<div class="chats">${chats.length ? chats.map(chatRow).join('') : '<div class="chat"><span></span><span class="muted small">No chats in this project in 30 days.</span></div>'}</div>` : ''}
+    </section>`;
+  }).join('')}`;
+}
+
+function renderChats() {
+  const list = CHATS.filter(inScope);
+  const col = (title, st, color) => {
+    const cs = list.filter((c) => c.state === st);
+    return `<div class="col"><h2><span class="dot" style="background:${color}"></span>${title} <span class="count">${cs.length}</span></h2>
+      ${cs.map((c) => { const p = P(c.project); return `<div class="glass card" tabindex="0" data-chat="${c.id}" style="--hue:${p.hue}">
+        <div style="display:flex;gap:8px;align-items:baseline"><span class="cname" style="flex:1">${esc(c.name)}</span><span class="tiny muted">${c.since === 'now' ? 'now' : c.since}</span></div>
+        <div class="tiny" style="color:${p.hue};margin-bottom:6px">${esc(c.project)} · <span class="muted">${c.model}</span></div>
+        <div class="card-rm"><span class="pill p-idle">0${p.stage} ${STAGES[p.stage - 1]}</span><span class="pill" style="color:${LADDER_C[p.readiness]};background:color-mix(in srgb, ${LADDER_C[p.readiness]} 14%, transparent)">${LADDER[p.readiness]}</span>${roadmapChip(p, c)}</div>
+        <div class="card-next"><span>Next:</span> ${esc(chatNext(c))}</div>
+        ${st === 'waiting' ? `<div class="said ask" style="-webkit-line-clamp:3">“${esc(c.asked)}”</div>` : `${progress(c.done, c.total, p.hue)}<div class="tiny muted" style="margin-top:4px">${c.total ? `${c.done} of ${c.total} steps · ` : ''}${st === 'working' ? esc(c.doing) : `${c.commits} commits`}</div>`}
+        <div class="foot"><span>${c.files} files</span><span>${c.commits} commits</span>${c.handoffs ? `<span>${c.handoffs} hand-offs</span>` : ''}<span style="margin-left:auto">$${c.cost.toFixed(2)}</span></div>
+      </div>`; }).join('') || '<p class="small dim">Nothing here.</p>'}</div>`;
+  };
+  return `<div class="head"><h1>Chats</h1><span class="s">${list.length} chats${scope ? ' in ' + esc(scope) : ' across your projects'} · sorted by what needs you</span></div>
+    ${renderLiveTopology()}
+    <div class="cols">${col('Waiting for you', 'waiting', 'var(--gold)')}${col('Working', 'working', 'var(--cyan)')}${col('Recent', 'idle', '#5b6372')}</div>`;
+}
+
+function renderChat() {
+  const c = CHATS.find((x) => x.id === openChat), p = P(c.project);
+  const stepEls = c.steps.map((s, i) => `<span class="step ${i < c.done ? 'done' : i === c.done && c.state !== 'idle' ? 'now' : ''}">${i < c.done ? '✓ ' : i === c.done && c.state !== 'idle' ? '▸ ' : ''}${esc(s)}</span>`).join('');
+  return `<button type="button" class="back" data-back>← back</button>
+  <section class="glass detail-top" style="--hue:${p.hue}">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h1>${esc(c.name)}</h1>${statePill(c.state)}<span class="small muted" style="margin-left:auto">${esc(c.project)} · ${c.model} · ctx ${c.ctx}% · $${c.cost.toFixed(2)}</span></div>
+    <div class="small muted" style="margin-top:6px">Goal (first ask): “${esc(c.goal)}”</div>
+    ${c.total ? `<div style="margin-top:10px">${progress(c.done, c.total, p.hue)}<div class="tiny muted" style="margin-top:4px">${c.done} of ${c.total} plan steps</div></div><div class="steps">${stepEls}</div>` : '<div class="tiny dim" style="margin-top:8px">This chat kept no plan or to-do list: progress is shown by its timeline, files and commits.</div>'}
+    ${c.asked ? `<div class="glass" style="margin-top:12px;padding:10px 12px;border-color:rgba(255,215,0,0.35)"><div class="label" style="color:var(--gold)">Waiting for you</div><div style="margin-top:4px">“${esc(c.asked)}”</div></div>` : ''}
+  </section>
+  ${projectContext(c)}
+  ${SPLITS[c.id] ? `<section class="glass bigtopo-wrap" style="margin-bottom:16px">
+    <div class="lt-head"><span class="livedot"></span><b>How this chat split its work</b><span class="tiny muted" id="bigsum">${topoSummary(c.id)}</span>
+      <span class="legend"><i style="--c:#c4b5fd"></i>Opus<i style="--c:#93c5fd"></i>Sonnet<i style="--c:#5eead4"></i>Haiku<i class="back"></i>merged</span></div>
+    <div id="bigtopo" data-chat="${c.id}">${topologySVG(c.id, true)}</div>
+  </section>` : ''}
+  <div class="grid3">
+    <section class="glass box"><div class="label">Timeline</div><ul class="tl">
+      <li><span class="dim">10:02</span><span>You: “${esc(c.goal)}”</span></li>
+      <li><span class="dim">10:18</span><span>Plan written, ${c.total || 'no'} steps</span></li>
+      <li><span class="dim">10:40</span><span>${Math.max(1, c.commits - 1)} commits</span></li>
+      <li><span class="dim">11:15</span><span>Hand-off to Haiku came back</span></li>
+      <li><span class="dim">11:30</span><span>${c.state === 'working' ? 'Now: ' + esc(c.doing) : c.state === 'waiting' ? 'Asked you a question' : 'Finished'}</span></li>
+    </ul></section>
+    <section class="glass box"><div class="label">Splits and tasks</div>
+      ${(SPLITS[c.id] ?? []).map((k) => `<div class="side-row"><span class="model" style="--m:${MODEL_C[k.model]}">${k.model}</span><div class="small">${esc(k.label)}<div class="tiny dim">${esc(k.kind)} · ${k.status === 'returned' ? `merged · ${k.took} · $${k.cost.toFixed(2)}` : k.status}</div></div></div>`).join('') || '<p class="small dim">This chat has not split any work.</p>'}
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px"><span class="tiny muted" style="flex:1">Soul suggests: the docs step fits Haiku.</span><button type="button" class="copy sm" data-copy>Copy instruction</button></div>
+    </section>
+    <section class="glass box"><div class="label">Changed</div>
+      <div class="small" style="margin-top:8px">${c.files} files · ${c.commits} commits</div>
+      <div class="code muted" style="margin-top:6px;line-height:1.9">server/src/modules/reports/schedules.ts<br>server/migrations/reports/0003_email_settings.sql<br>docs/v2/DECISION-SETTINGS.md<br>apps/basic/src/views/Sld.tsx</div>
+      <div class="tiny dim" style="margin-top:8px">Latest commit: “Decision settings: which setting lives where”</div>
+    </section>
+  </div>`;
+}
+
+function renderProjectPage() {
+  const p = P(projectPage);
+  const chats = CHATS.filter((c) => c.project === p.name);
+  const tabs = ['Chats', 'Tasks', 'Roadmap', 'Repos', 'Inventory'];
+  let body = '';
+  if (projectTab === 'Chats') body = `<section class="glass project open" style="--hue:${p.hue};border-left-width:1px"><div class="chats" style="border-top:0">${chats.map(chatRow).join('') || '<p class="muted small" style="padding:12px">No chats yet.</p>'}</div></section>`;
+  if (projectTab === 'Roadmap') body = p.roadmap ? `<div class="horizons">${[['Now · Oct to Nov · pilot ready', 'in progress', ['R-01 Backups and restore drill', 'R-02 Error tracking with alerts', 'R-03 Password reset by e-mail', 'R-04 Recorded journeys per role']], ['Next · Nov to Jan · production ready', 'planned', ['R-20 Plan and add-on checks', 'R-21 Isolation testing', 'R-22 Safer saving']], ['Later · Jan to Jun · enterprise', 'planned', ['R-50 Security review', 'R-51 60 days of monitoring', 'R-53 Single sign-on']], ['Recently done', 'done', ['User Guide 1.1', 'FAQ', 'Product roadmap']]].map(([t, st, items]) => `<div class="glass horizon" style="border-color:${st === 'in progress' ? p.hue + '88' : ''}"><div class="small" style="color:#fff">${t}</div><div class="tiny" style="color:${st === 'in progress' ? p.hue : 'var(--muted)'};margin-bottom:6px">${st}</div>${items.map((it, i) => `<div class="item"><span style="color:${st === 'done' ? 'var(--teal)' : i === 0 && st === 'in progress' ? 'var(--red)' : 'var(--muted)'}">${st === 'done' ? '✓' : i === 0 && st === 'in progress' ? '!' : '·'}</span><span>${it}</span></div>`).join('')}</div>`).join('')}</div><div class="tiny dim" style="margin-top:8px">From docs/ROADMAP.md in the repo · changed 3d ago · Roadmap changes: R-07 Ready → Done, R-04 moved Next → Now</div>` : '<p class="muted">No roadmap yet. In this project’s Claude Code chat, type /soul-roadmap.</p>';
+  if (projectTab === 'Repos') body = `<div class="glass scroll"><table><thead><tr><th>Repo</th><th>Stage</th><th>Branch</th><th>Local</th><th>Commits (30d)</th><th>Last commit</th></tr></thead><tbody>
+    <tr><td style="color:#fff">${esc(p.name.toLowerCase().replace(/\s+/g, '-'))}</td><td>0${p.stage}</td><td class="muted">main</td><td style="color:var(--gold)">2 uncommitted</td><td>201 (34)</td><td class="muted">2d · Handover pack, system map</td></tr>
+    <tr><td style="color:#fff">${esc(p.name.toLowerCase().replace(/\s+/g, '-'))}-web</td><td>07</td><td class="muted">v2/frontend</td><td class="muted">clean</td><td>88 (12)</td><td class="muted">4d · Basic edition visuals</td></tr></tbody></table></div>`;
+  if (projectTab === 'Tasks') body = renderTaskBoard(p.name);
+  if (projectTab === 'Inventory') { const keep = scope; scope = p.name; body = renderInventoryBody(); scope = keep; }
+  if (false) body = `<div class="grid3"><section class="glass box"><div class="label">API keys (names only)</div><div class="small" style="margin-top:6px;line-height:1.9">RESEND_API_KEY → Resend e-mail<br>SUPABASE_ANON_KEY → Supabase<br>GEMINI_API_KEY → Google Gemini</div></section><section class="glass box"><div class="label">Hosting and domains</div><div class="small" style="margin-top:6px;line-height:1.9">Cloudflare Worker<br>${esc(p.live)}<br>Supabase (Singapore)</div></section><section class="glass box"><div class="label">E-mail and sign-in</div><div class="small" style="margin-top:6px;line-height:1.9">noreply@ (own domain)<br>Magic link sign-in<br>Seeded admin account</div></section></div>`;
+  return `<button type="button" class="back" data-back>← all projects</button>
+  <section class="glass detail-top" style="--hue:${p.hue}">
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><h1>${esc(p.name)}</h1><span class="tiny muted">${p.kind}</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:12px">${stageTrack(p)}${readinessCell(p)}<div class="small">${esc(p.next)}</div></div>
+  </section>
+  <div class="ptabs" role="tablist" style="--hue:${p.hue}">${tabs.map((t) => `<button type="button" class="ptab" role="tab" aria-selected="${t === projectTab}" data-ptab="${t}">${t}${t === 'Chats' ? ` <span class="dim">${chats.length}</span>` : ''}</button>`).join('')}</div>
+  ${body}`;
+}
+
+function renderSoul() {
+  return `<div class="head"><h1>${scope ? 'Soul of ' + esc(scope) : 'Main soul'}</h1><span class="s">${scope ? 'answers only for ' + esc(scope) : 'answers across every project'}</span></div>
+  <div class="soulwrap"><canvas id="soul" width="800" height="800" aria-label="The soul"></canvas></div>
+  <div class="glass askbox"><label for="ask" class="label">Ask</label><input id="ask" placeholder="${scope ? 'Ask the soul of ' + esc(scope) + '…' : 'Ask the main soul about any project…'}"><div class="tiny" style="color:var(--gold);margin-top:6px;opacity:0.8">Answers here are offline and free. For full answers, type /soul &lt;question&gt; in a Claude Code chat: it runs on your subscription.</div></div>`;
+}
+
+function render() {
+  document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-current', t.dataset.view === view ? 'page' : 'false'));
+  const main = document.getElementById('main');
+  main.innerHTML = openChat ? renderChat() : projectPage ? renderProjectPage() : view === 'chats' ? renderChats() : view === 'tasks' ? renderTasks() : view === 'inventory' ? renderInventory() : view === 'soul' ? renderSoul() : renderProjects();
+  const p = scope ? P(scope) : null;
+  document.getElementById('swName').textContent = scope ?? 'All projects';
+  document.getElementById('swDot').style.background = p ? p.hue : '#34d399';
+  const waiting = CHATS.filter((c) => inScope(c) && c.state === 'waiting').length;
+  document.getElementById('waitBadge').textContent = waiting ? `${waiting} waiting` : '';
+  document.getElementById('waitBadge').hidden = !waiting;
+  document.getElementById('liveCount').textContent = `${CHATS.filter((c) => inScope(c) && c.state === 'working').length} / ${CHATS.filter(inScope).length}`;
+  if (view === 'soul' && !openChat && !projectPage) startSoul(document.getElementById('soul'), p ? p.hue : '#34d399');
+}
+
+// ---- Interactions ----
+document.querySelector('.tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('.tab'); if (!b) return;
+  view = b.dataset.view; openChat = null; projectPage = null; render();
+});
+document.getElementById('main').addEventListener('click', (e) => {
+  const tr = e.target.closest('[data-trigger]');
+  if (tr) { e.stopPropagation(); openSend(tr.dataset.trigger); return; }
+  const pg = e.target.closest('[data-page]');
+  if (pg) { e.preventDefault(); projectPage = pg.dataset.page; projectTab = 'Chats'; render(); return; }
+  const chat = e.target.closest('[data-chat]');
+  if (chat) { openChat = chat.dataset.chat; render(); window.scrollTo(0, 0); return; }
+  const tog = e.target.closest('[data-toggle]');
+  if (tog) { const n = tog.dataset.toggle; openSet.has(n) ? openSet.delete(n) : openSet.add(n); render(); return; }
+  if (e.target.closest('[data-back]')) { if (openChat) openChat = null; else projectPage = null; render(); return; }
+  const pt = e.target.closest('[data-ptab]'); if (pt) { projectTab = pt.dataset.ptab; render(); return; }
+  const ct = e.target.closest('[data-copytext]');
+  if (ct) { const t = ct.dataset.copytext; const done = () => { const o = ct.textContent; ct.textContent = 'Copied'; setTimeout(() => { ct.textContent = o; }, 1400); }; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(done, done); return; }
+  const ic = e.target.closest('[data-invcat]'); if (ic) { invCat = ic.dataset.invcat; render(); return; }
+  const ig = e.target.closest('[data-invgroup]'); if (ig) { invGroup = ig.dataset.invgroup; render(); return; }
+  const ts = e.target.closest('[data-tasksrc]'); if (ts) { taskSrc = ts.dataset.tasksrc; render(); return; }
+  const tm = e.target.closest('[data-taskmode]'); if (tm) { taskMode = tm.dataset.taskmode; render(); return; }
+  const cp = e.target.closest('[data-copy]');
+  if (cp) { const t = 'Use the delegate tool (model haiku) to write the docs for this change, then check the result.'; navigator.clipboard?.writeText(t).catch(() => {}); cp.textContent = 'Copied'; }
+});
+document.getElementById('main').addEventListener('input', (e) => { if (e.target.id === 'invq') { invQ = e.target.value; const l = document.getElementById('invList'); if (l) l.innerHTML = invList(); } });
+document.getElementById('main').addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[tabindex]')) { e.preventDefault(); e.target.click(); } });
+
+const swBtn = document.getElementById('swBtn'), swMenu = document.getElementById('swMenu');
+function buildMenu() {
+  const kinds = [...new Set(PROJECTS.map((p) => p.kind))];
+  swMenu.innerHTML = `<button type="button" role="option" data-scope=""><span class="dot" style="background:#34d399"></span>All projects<span class="dim" style="margin-left:auto">main soul</span></button>` +
+    kinds.map((k) => `<div class="k">${k}</div>` + PROJECTS.filter((p) => p.kind === k).map((p) => `<button type="button" role="option" data-scope="${esc(p.name)}"><span class="dot" style="background:${p.hue}"></span>${esc(p.name)}</button>`).join('')).join('');
+}
+swBtn.addEventListener('click', () => { const o = swMenu.hidden; swMenu.hidden = !o; swBtn.setAttribute('aria-expanded', String(o)); });
+swMenu.addEventListener('click', (e) => { const b = e.target.closest('[data-scope]'); if (!b) return; scope = b.dataset.scope || null; projectPage = null; openChat = null; swMenu.hidden = true; render(); });
+document.addEventListener('click', (e) => { if (!e.target.closest('.switch')) swMenu.hidden = true; });
+
+// ---- The soul: a breathing shape, drawn the same way for the Soul place and the lock screen ----
+const soulLoops = new Map();
+function startSoul(canvas, hue) {
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height, R = W * 0.22;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let t = Math.random() * 100;
+  const draw = () => {
+    if (!canvas.isConnected) return;
+    ctx.clearRect(0, 0, W, H);
+    ctx.save(); ctx.translate(W / 2, H / 2);
+    for (let r = 0; r < 3; r++) { ctx.beginPath(); ctx.setLineDash([6, 12]); ctx.strokeStyle = hue + '33'; ctx.lineWidth = 2; ctx.arc(0, 0, R * (1.45 + r * 0.32), t * 0.05 * (r % 2 ? 1 : -1), Math.PI * 2 + t * 0.05); ctx.stroke(); }
+    ctx.setLineDash([]);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 1.2); g.addColorStop(0, '#ffffffcc'); g.addColorStop(0.25, hue + 'aa'); g.addColorStop(1, hue + '00');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, R * 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.05) {
+      const k = R * (1 + 0.12 * Math.sin(3 * a + t * 0.9) + 0.07 * Math.sin(5 * a - t * 1.3) + 0.04 * Math.sin(7 * a + t * 0.5));
+      a === 0 ? ctx.moveTo(Math.cos(a) * k, Math.sin(a) * k) : ctx.lineTo(Math.cos(a) * k, Math.sin(a) * k);
+    }
+    ctx.closePath(); ctx.strokeStyle = hue; ctx.lineWidth = 4; ctx.shadowColor = hue; ctx.shadowBlur = 18; ctx.stroke();
+    ctx.restore();
+    t += reduce ? 0 : 0.016;
+    soulLoops.set(canvas, requestAnimationFrame(draw));
+  };
+  cancelAnimationFrame(soulLoops.get(canvas)); draw();
+}
+
+// ---- Lock: only the soul, murmuring without names ----
+const lock = document.getElementById('lock'), murmur = document.getElementById('murmur');
+const LINES = () => { const w = CHATS.filter((c) => c.state === 'working').length, q = CHATS.filter((c) => c.state === 'waiting').length;
+  return [`${['', 'one', 'two', 'three', 'four'][w] || w} chats still thinking…`, `${['', 'one', 'two', 'three'][q] || q} chats waiting for you`, 'tools turning over in the dark', 'one light has gone quiet', 'twenty things wait on a decision', 'holding the threads together', 'humming to itself']; };
+let murmurTimer;
+function murmurLoop() {
+  const lines = LINES(); const line = lines[Math.floor(Math.random() * lines.length)];
+  murmur.style.opacity = 1; murmur.style.left = (36 + Math.random() * 28) + '%'; let i = 0;
+  const type = () => { if (lock.hidden) return; murmur.textContent = line.slice(0, ++i); murmurTimer = setTimeout(i < line.length ? type : () => { murmur.style.opacity = 0; murmurTimer = setTimeout(murmurLoop, 1500); }, i < line.length ? 70 : 3600); };
+  type();
+}
+function openLock() { lock.hidden = false; startSoul(document.getElementById('lockSoul'), '#34d399'); clearTimeout(murmurTimer); murmurLoop(); }
+function closeLock() { lock.hidden = true; clearTimeout(murmurTimer); murmur.textContent = ''; }
+document.getElementById('lockBtn').addEventListener('click', openLock);
+lock.addEventListener('click', closeLock);
+document.addEventListener('keydown', (e) => { if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l') { e.preventDefault(); openLock(); } else if (!lock.hidden && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) closeLock(); });
+
+document.getElementById('sendCancel').addEventListener('click', closeSend);
+document.getElementById('sendBox').addEventListener('click', (e) => { if (e.target.id === 'sendBox') closeSend(); });
+document.getElementById('sendGo').addEventListener('click', () => {
+  const c = CHATS.find((x) => x.id === sendTo);
+  closeSend();
+  toast(`Sent to “${c.name}”. It will show you the roadmap draft before writing it.`);
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !document.getElementById('sendBox').hidden) closeSend(); });
+buildMenu();
+render();
+</script>
