@@ -309,6 +309,9 @@ function ingestLine(acc: FileAcc, line: string) {
       }
       if (o.isMeta || acc.isSidechain) break;
       const text = textOf(o.message?.content);
+      // A new message starts a turn: the chat is working (thinking) before it writes anything back.
+      // An interrupt ends it.
+      if (text) acc.lastStop = /^\[Request interrupted/.test(text.trim()) ? 'end_turn' : null;
       if (text && !text.trimStart().startsWith('<')) {
         pushCapped(acc.prompts, { ts, text: clip(text, 400) });
         acc.turns += 1;

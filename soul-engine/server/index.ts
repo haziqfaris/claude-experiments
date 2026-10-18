@@ -234,7 +234,7 @@ const server = http.createServer(async (req, res) => {
       if (url.pathname === '/api/chats') return json(res, 200, chats);
       const status = await projectStatus(inv);
       if (url.pathname === '/api/crossings' || url.pathname === '/api/feed') {
-        const cross = buildCrossings(chats, index.repoWork(Date.now() - 24 * 3_600_000), inv, status);
+        const cross = await buildCrossings(chats, index.repoWork(Date.now() - 24 * 3_600_000), inv, status);
         if (url.pathname === '/api/crossings') return json(res, 200, cross);
         return json(res, 200, buildFeed(chats, status, 24, Date.now(), cross.alerts));
       }
