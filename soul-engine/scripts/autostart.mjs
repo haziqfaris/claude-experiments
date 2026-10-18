@@ -34,7 +34,7 @@ if (!existsSync(path.join(root, 'dist', 'index.html'))) {
 }
 mkdirSync(logDir, { recursive: true });
 // VBScript runs the command with no window. Quotes are doubled inside VBScript strings.
-const cmd = `cmd /c cd /d "${root}" && npx tsx server/index.ts >> "${log}" 2>&1`;
+const cmd = `cmd /c cd /d "${root}" && npm run serve >> "${log}" 2>&1`;
 writeFileSync(entry, [
   "' Starts the REKA Soul Engine hub at sign-in, hidden. Remove with: npm run autostart -- off",
   `CreateObject("WScript.Shell").Run "${cmd.replace(/"/g, '""')}", 0, False`,

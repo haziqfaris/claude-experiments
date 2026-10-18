@@ -55,6 +55,7 @@ function flowGraph(): FlowGraph {
 }
 
 const PORT = Number(process.env.SOUL_PORT ?? 7777);
+const STARTED = Date.now();
 const HOST = process.env.SOUL_HOST ?? '127.0.0.1';
 const FORCE_DEMO = process.env.SOUL_DEMO === '1';
 const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -211,6 +212,11 @@ const server = http.createServer(async (req, res) => {
     // ---- Relay and the soul's tools (called by the soul-relay plugin inside Claude Code) ----
     if (req.method === 'GET' && url.pathname === '/api/flow') return json(res, 200, flowGraph());
     if (req.method === 'GET' && url.pathname === '/api/config') return json(res, 200, { ask: askUsesApi() ? 'api' : 'subscription' });
+    // The open app compares this with what it loaded, and offers a reload when the build changed.
+    if (req.method === 'GET' && url.pathname === '/api/version') {
+      const st = await fs.stat(path.join(DIST, 'index.html')).catch(() => null);
+      return json(res, 200, { build: st ? Math.round(st.mtimeMs) : 0, started: STARTED });
+    }
 
     if (req.method === 'GET' && url.pathname === '/api/status') {
       return json(res, 200, await projectStatus(inventory.get(), url.searchParams.get('refresh') === '1'));

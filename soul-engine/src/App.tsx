@@ -11,7 +11,7 @@ import NavBar, { View } from './components/NavBar';
 import LockScreen from './components/LockScreen';
 import { LockPrefs, readLocked, readPrefs, writeLocked, writePrefs } from './lock';
 import { SoulMood, Message, OrbitNode, ChatTurn } from './types';
-import { querySoulEngine, useFlow, useInventory, useProjectDetail, useSnapshot, useStatus } from './services/soulService';
+import { querySoulEngine, useFlow, useInventory, useNewBuild, useProjectDetail, useSnapshot, useStatus } from './services/soulService';
 import { buildProjects, hueOf, MAIN_HUE, seedOf } from './projects';
 import { fmtCost, fmtTokens } from './format';
 
@@ -60,6 +60,15 @@ const App: React.FC = () => {
   const lock = useCallback(() => { writeLocked(true); setLocked(true); }, []);
   const unlock = useCallback(() => { writeLocked(false); setLocked(false); }, []);
   const savePrefs = useCallback((p: LockPrefs) => { writePrefs(p); setLockPrefs(p); }, []);
+  // A newer build: reload by itself while locked or out of sight, otherwise offer it in the bar.
+  const newBuild = useNewBuild();
+  useEffect(() => {
+    if (!newBuild) return;
+    const go = () => { if (readLocked() || document.hidden) location.reload(); };
+    go();
+    document.addEventListener('visibilitychange', go);
+    return () => document.removeEventListener('visibilitychange', go);
+  }, [newBuild]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l') { e.preventDefault(); lock(); } };
     window.addEventListener('keydown', key);
@@ -237,6 +246,7 @@ const App: React.FC = () => {
         lockPrefs={lockPrefs}
         onLockPrefs={savePrefs}
         onLock={lock}
+        update={newBuild}
         badges={{
           status: status ? `${status.filter(s => (!scope || s.name === scope) && s.live.some(l => l.ok && !l.staging)).length} live` : undefined,
           relay: flow && flow.totals.running ? `${flow.totals.running} running` : undefined,

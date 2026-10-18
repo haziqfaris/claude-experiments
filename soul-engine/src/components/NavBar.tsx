@@ -108,10 +108,12 @@ interface NavBarProps {
   lockPrefs: LockPrefs;
   onLockPrefs: (p: LockPrefs) => void;
   onLock: () => void;
+  /** A newer build is ready. */
+  update?: boolean;
 }
 
 /** One bar for everything: which soul (all projects or one), which screen, and the numbers that matter. */
-const NavBar: React.FC<NavBarProps> = ({ scope, view, projects, link, linkLabel, metrics, badges, inventoryOpen, onNavigate, onInventory, lockPrefs, onLockPrefs, onLock }) => {
+const NavBar: React.FC<NavBarProps> = ({ scope, view, projects, link, linkLabel, metrics, badges, inventoryOpen, onNavigate, onInventory, lockPrefs, onLockPrefs, onLock, update }) => {
   const [open, setOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -199,6 +201,12 @@ const NavBar: React.FC<NavBarProps> = ({ scope, view, projects, link, linkLabel,
         <span className={`w-1.5 h-1.5 rounded-full ${link === 'online' ? 'bg-reka-teal animate-pulse' : 'bg-reka-gold'}`} />{linkLabel}
       </span>
       <div className="ml-3 flex items-center gap-1.5">
+        {update && (
+          <button type="button" onClick={() => location.reload()} title="A newer version of the dashboard is ready"
+            className="h-8 px-2.5 rounded border border-reka-gold/50 bg-reka-gold/10 text-[11px] font-mono uppercase tracking-widest text-reka-gold hover:bg-reka-gold/20 animate-pulse">
+            Updated · Reload
+          </button>
+        )}
         <FullscreenButton />
         <LockMenu prefs={lockPrefs} onPrefs={onLockPrefs} onLock={onLock} />
       </div>

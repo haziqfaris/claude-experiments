@@ -138,3 +138,24 @@ export function useStatus(every = 60000): { status: ProjectStatus[] | null; refr
   }, [every, tick]);
   return { status, refresh: () => setTick(n => n + 1) };
 }
+
+/** True once the hub serves a newer build than the one this page loaded (checked every 15 seconds). */
+export function useNewBuild(every = 15000): boolean {
+  const [fresh, setFresh] = useState(false);
+  useEffect(() => {
+    let first: number | null = null;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const v = (await (await fetch('/api/version', { cache: 'no-store' })).json()) as { build: number };
+        if (!v.build || cancelled) return;
+        if (first == null) first = v.build;
+        else if (v.build !== first) setFresh(true);
+      } catch { /* hub restarting: try again next time */ }
+    };
+    check();
+    const t = setInterval(check, every);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [every]);
+  return fresh;
+}

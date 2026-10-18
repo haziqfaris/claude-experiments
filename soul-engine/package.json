@@ -11,7 +11,8 @@
     "build": "vite build",
     "start": "tsx server/index.ts",
     "typecheck": "tsc --noEmit -p .",
-    "autostart": "node scripts/autostart.mjs"
+    "autostart": "node scripts/autostart.mjs",
+    "serve": "concurrently -k -n hub,build -c magenta,cyan \"tsx watch --clear-screen=false server/index.ts\" \"vite build --watch --logLevel warn\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
