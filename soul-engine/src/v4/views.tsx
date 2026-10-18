@@ -71,7 +71,7 @@ const ProjectCard: React.FC<{ s: ProjectStatus; ctx: AppCtx }> = ({ s, ctx }) =>
 };
 
 // ---- Today: the soul as a full page, only a HUD ----
-export interface AskState { answer: string; meta: string; busy: boolean; onAsk: (q: string) => void }
+export interface AskState { answer: string; meta: string; busy: boolean; onAsk: (q: string) => void; /** The soul's home chat, when one is set with /soul-home. */ home?: string | null }
 export const TodayHUD: React.FC<{ ctx: AppCtx; soul: React.ReactNode; badges: Partial<Record<View, [number, string]>>; ask: AskState; onSearch: () => void; onLock: () => void; update: boolean }> = ({ ctx, soul, badges, ask, onSearch, onLock, update }) => {
   const chats = ctx.chats.filter((c) => inScope(ctx, c.project));
   const waiting = chats.filter((c) => c.state === 'waiting'), working = chats.filter((c) => c.state === 'working');
@@ -130,7 +130,9 @@ export const TodayHUD: React.FC<{ ctx: AppCtx; soul: React.ReactNode; badges: Pa
           <input id="ask" value={q} onChange={(e) => setQ(e.target.value)} placeholder={ask.busy ? 'Thinking…' : ctx.scope ? `Ask the soul of ${ctx.scope}…` : 'Ask the soul about any project…'} autoComplete="off" />
           <kbd>Enter</kbd>
         </form>
-        <div className="tiny" style={{ color: 'var(--wait)', opacity: 0.8, textAlign: 'center' }}>Offline and free here. For full answers, type /soul &lt;question&gt; in a Claude Code chat: it runs on your subscription.</div>
+        {ask.home
+          ? <div className="tiny" style={{ color: 'var(--accent)', opacity: 0.85, textAlign: 'center' }}>Answered by your soul chat “{ask.home}” in Claude Code, on your subscription.</div>
+          : <div className="tiny" style={{ color: 'var(--wait)', opacity: 0.8, textAlign: 'center' }}>Offline answers for now. For real ones, open a Claude Code chat and type /soul-home: the soul answers there, on your subscription.</div>}
       </div>
     </section>
   );

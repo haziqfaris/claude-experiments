@@ -531,6 +531,7 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'soul', description: "The soul of this chat's project: what it knows, and what to ask", argumentHint: '[question]' })
     await $.command.register({ name: 'soul-routes', description: "Suggested model and chat for each step of this chat's plan" })
     await $.command.register({ name: 'soul-roadmap', description: "Draft or update this project's roadmap (docs/ROADMAP.md) in the REKA format, from its plans" })
+    await $.command.register({ name: 'soul-home', description: "Make this chat the soul's home: questions from the dashboard's ask bar are answered here (/soul-home off to stop)", argumentHint: '[off]' })
 
     showStatus($)
     return next(e)
@@ -629,6 +630,19 @@ export const register: Register = (on, options) => {
     await refreshRoutes($)
     const text = S.plan.text || (await soulText($, `/api/soul/plan?${q({ session: S.sessionId })}`))
     return { text, context: S.plan.routes.length ? [`The user looked at the soul's suggested routes for the plan:\n${text}\nThey are suggestions; only act on them if the user asks.`] : undefined }
+  })
+
+  // The soul's home: the dashboard's ask bar sends its questions to this chat, which answers on its own model.
+  on('command.run', { command: 'soul-home' }, async ($, e) => {
+    const off = e.args.trim().toLowerCase() === 'off'
+    const r = await hub<{ home: { session: string } | null; error?: string }>($, '/api/soul/home', off ? { off: true } : { session: S.sessionId, cwd: await $.session.cwd() })
+    if (!r) return { text: HUB_DOWN }
+    if (r.error) return { text: `Could not set the soul's home: ${r.error}` }
+    return {
+      text: off
+        ? "This chat is no longer the soul's home. The dashboard's ask bar answers offline until another chat runs /soul-home."
+        : "◉ This chat is now the soul's home. Questions typed in the Soul Engine dashboard's ask bar arrive here as prompts from soul-relay, and the answer you write shows in the dashboard. Keep this chat open; /soul-home off to stop.",
+    }
   })
 
   // Each project writes its own roadmap; the soul hands this chat the format and what it has now.

@@ -251,3 +251,27 @@ describe('the soul', () => {
     expect(ack).toContain('"ok":true')
   })
 })
+
+describe('the soul home', () => {
+  test('/soul-home makes this chat the home, and off undoes it', async ($, on) => {
+    const asked: string[] = []
+    mock.store(on)
+    mock.clock(on)
+    engineBottom(on)
+    fakeHub(on, asked)
+    on('session.model', () => ({ value: 'claude-opus-5-5' }))
+    on('session.id', () => ({ value: 'home-session' }))
+    on('session.cwd', () => ({ value: '/work/soul-engine' }))
+    on('session.start', () => ({ cwd: '/work/soul-engine' }))
+
+    await $.session.start({ source: 'startup', cwd: '/work/soul-engine', surface: null } as never)
+    const on1 = await $.command.run({ command: 'soul-home', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as never)
+    const off = await $.command.run({ command: 'soul-home', args: 'off', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as never)
+
+    const posts = asked.filter(a => a.startsWith('POST /api/soul/home'))
+    expect(posts[0]).toContain('"session":"home-session"')
+    expect(posts[1]).toContain('"off":true')
+    expect(String((on1 as { text?: string }).text)).toContain("soul's home")
+    expect(String((off as { text?: string }).text)).toContain('no longer')
+  })
+})

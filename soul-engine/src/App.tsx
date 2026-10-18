@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import SoulCore from './components/SoulCore';
 import LockScreen from './components/LockScreen';
 import { SoulMood } from './types';
-import { querySoulEngine, sendToChat, useChats, useFeed, useFlow, useInventory, useNewBuild, useSnapshot, useStatus, useTasks } from './services/soulService';
+import { querySoulEngine, sendToChat, useChats, usePoll, useFeed, useFlow, useInventory, useNewBuild, useSnapshot, useStatus, useTasks } from './services/soulService';
 import { hueOf, MAIN_HUE, seedOf } from './projects';
 import { fmtCost, fmtTokens } from './format';
 import { LockPrefs, readLocked, readPrefs, writeLocked, writePrefs } from './lock';
@@ -113,7 +113,34 @@ const App: React.FC = () => {
   });
 
   // ---- Ask the soul (offline unless SOUL_ASK_API=on) ----
+  // The soul's home chat (set with /soul-home in Claude Code) answers on your subscription; offline otherwise.
+  const homeInfo = usePoll<{ home: { session: string; name: string | null } | null }>('/api/soul/home', 10000);
+  const home = homeInfo?.home ?? null;
+  const askHome = async (q: string, h: { session: string; name: string | null }) => {
+    const who = h.name ? `“${h.name}”` : 'your soul chat';
+    setAnswer({ answer: `Asking ${who}…`, meta: 'sent to your soul chat in Claude Code', busy: true });
+    let id: string | null = null;
+    try {
+      const r = await fetch('/api/ask/home', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question: q, scope }) });
+      id = ((await r.json()) as { id?: string }).id ?? null;
+    } catch { /* falls through */ }
+    if (!id) { setAnswer({ answer: 'The hub did not take the question.', meta: '', busy: false }); return; }
+    const started = Date.now();
+    const label: Record<string, string> = { queued: `Waiting for ${who} to pick it up (its Claude Code window must be open)…`, delivered: `${who} has the question; it starts when the chat is free…`, started: `${who} is thinking…`, thinking: `${who} is thinking…` };
+    while (Date.now() - started < 5 * 60_000) {
+      await new Promise((r) => setTimeout(r, 1500));
+      try {
+        const s = (await (await fetch(`/api/ask/home?id=${id}`, { cache: 'no-store' })).json()) as { status: string; answer: string | null; chat: string | null; reason: string | null };
+        if (s.status === 'answered') { setAnswer({ answer: s.answer ?? '', meta: `answered by your soul chat${s.chat ? ` · ${s.chat}` : ''} · on your subscription`, busy: false }); return; }
+        if (s.status === 'failed') { setAnswer({ answer: `${who} could not start on it: ${s.reason ?? 'unknown reason'}.`, meta: '', busy: false }); return; }
+        setAnswer({ answer: label[s.status] ?? 'Waiting…', meta: 'sent to your soul chat in Claude Code', busy: true });
+      } catch { /* hub restarting: keep waiting */ }
+    }
+    setAnswer({ answer: `No answer from ${who} after five minutes. Is its Claude Code window open?`, meta: '', busy: false });
+  };
+
   const onAsk = async (q: string) => {
+    if (home) { await askHome(q, home); return; }
     setAnswer({ answer: '', meta: '', busy: true });
     let text = '', meta = '';
     try {
@@ -194,7 +221,7 @@ const App: React.FC = () => {
             <div className="top-right"><button type="button" className="askbtn" onClick={() => go('today')}>{Icon.spark}<span>Ask the soul</span></button></div>
           </header>
           <main>
-            {view === 'today' && <TodayHUD ctx={ctx} soul={soul} badges={badges} ask={{ ...answer, onAsk }} onSearch={() => setPalette(true)} onLock={lock} update={newBuild} />}
+            {view === 'today' && <TodayHUD ctx={ctx} soul={soul} badges={badges} ask={{ ...answer, onAsk, home: home ? home.name ?? 'your soul chat' : null }} onSearch={() => setPalette(true)} onLock={lock} update={newBuild} />}
             {view === 'chats' && <ChatsView ctx={ctx} topoMode={topoMode} setTopoMode={setTopoMode} />}
             {view === 'tasks' && <TasksView ctx={ctx} />}
             {view === 'projects' && <ProjectsView ctx={ctx} />}
