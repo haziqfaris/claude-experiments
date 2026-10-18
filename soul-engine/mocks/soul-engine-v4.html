@@ -435,6 +435,48 @@ td { padding: 11px 16px; border-top: 1px solid var(--outline); }
   .askbtn span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .view-in, .skel { animation: none; } .drawer { transition: none; } .ucard:hover { transform: none; } }
+
+/* ===== The soul as a full page: only a HUD floats over it ===== */
+body.immersive .side, body.immersive .top { display: none; }
+body.immersive .shell { grid-template-columns: minmax(0, 1fr); }
+body.immersive .content main { max-width: none; padding: 0; }
+.hud { position: relative; height: 100vh; min-height: 640px; overflow: hidden; background: radial-gradient(ellipse at 50% 48%, rgba(52, 211, 153, 0.08), transparent 60%), var(--bg-2); }
+.hud-soul { position: absolute; left: 50%; top: 47%; transform: translate(-50%, -50%); width: min(86vh, 980px, 92vw); height: min(86vh, 980px, 92vw); pointer-events: none; }
+.hud-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 14px; padding: calc(14px + env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) 0 max(20px, env(safe-area-inset-left, 0px)); z-index: 3; }
+.hud-brand { display: flex; align-items: center; gap: 10px; }
+.hud-brand b { font-weight: 600; font-size: 18px; letter-spacing: 0.04em; }
+.hud-mark { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 40% 40%, #d1fae5, var(--accent) 45%, rgba(52, 211, 153, 0) 72%); box-shadow: 0 0 12px rgba(52, 211, 153, 0.6); }
+.hud-scope { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px 0 12px; border-radius: var(--r-pill); background: rgba(20, 32, 53, 0.7); backdrop-filter: blur(12px); font-weight: 500; font-size: 12.5px; }
+.hud-scope:hover { background: rgba(27, 41, 67, 0.9); }
+.hudnav { margin: 0 auto; display: flex; gap: 2px; padding: 4px; border-radius: var(--r-pill); background: rgba(14, 22, 38, 0.66); backdrop-filter: blur(14px); border: 1px solid var(--outline); }
+.hudnav-i { position: relative; display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: var(--r-pill); color: var(--muted); font-size: 12.5px; font-weight: 500; }
+.hudnav-i svg { width: 16px; height: 16px; }
+.hudnav-i:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.hudnav-i[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
+.hudnav-i .nb { min-width: 18px; height: 18px; font-size: 10px; padding: 0 5px; border-radius: var(--r-pill); display: grid; place-items: center; font-weight: 600; }
+.hud-right { display: flex; align-items: center; gap: 18px; }
+.hud-m { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.hud-m small { font-size: 10.5px; color: var(--dim); }
+.hud-m b { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hud-btn { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: rgba(20, 32, 53, 0.7); backdrop-filter: blur(12px); }
+.hud-btn:hover { color: var(--text); background: rgba(27, 41, 67, 0.9); }
+.hud-panel { position: absolute; top: 88px; bottom: 170px; width: 310px; overflow-y: auto; scrollbar-width: none; padding: 16px; border-radius: var(--r-card); background: rgba(14, 22, 38, 0.62); backdrop-filter: blur(16px); border: 1px solid var(--outline); z-index: 2; }
+.hud-left { left: max(20px, env(safe-area-inset-left, 0px)); }
+.hud-right-panel { right: max(20px, env(safe-area-inset-right, 0px)); width: 340px; }
+.hud-bottom { position: absolute; left: 50%; bottom: calc(26px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(660px, calc(100% - 40px)); display: grid; gap: 10px; z-index: 3; }
+.hud-bottom .soulmurmur { margin: 0; }
+.hud-ask { display: flex; align-items: center; gap: 12px; height: 54px; padding: 0 10px 0 20px; border-radius: var(--r-pill); background: rgba(20, 32, 53, 0.78); backdrop-filter: blur(16px); border: 1px solid var(--outline-2); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4); }
+.hud-ask:focus-within { border-color: var(--accent); }
+.hud-ask input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--text); font: 400 14px var(--sans); }
+.hud-ask kbd { font: 500 11px var(--sans); color: var(--dim); background: var(--surface); padding: 3px 9px; border-radius: 8px; }
+@media (max-width: 1200px) { .hud-m { display: none; } .hudnav-i span:not(.nb) { display: none; } }
+@media (max-width: 900px) {
+  .hud { height: auto; min-height: 100vh; padding-bottom: 100px; }
+  .hud-soul { position: relative; left: auto; top: auto; transform: none; display: block; margin: 70px auto 0; width: min(92vw, 520px); height: min(92vw, 520px); }
+  .hudnav { display: none; }
+  .hud-panel { position: relative; top: auto; bottom: auto; left: auto; right: auto; width: auto; margin: 12px 16px 0; max-height: none; }
+  .hud-bottom { position: relative; left: auto; bottom: auto; transform: none; margin: 16px auto 0; }
+}
 </style>
 
 <div class="shell">
@@ -985,16 +1027,30 @@ function projectCard(p) {
 
 // ---- Views ----
 function renderToday() {
-  return `<div class="head"><h1>${scope ? esc(scope) + ' today' : 'Today'}</h1><span class="s">what needs you, what is running, and the latest, live</span></div>
-  <div class="soulgrid">
-    <section class="glass nowpanel"><div class="label">Happening now</div><div id="soulnow" style="margin-top:8px">${nowHTML()}</div></section>
-    <div>
-      <div class="soulwrap"><canvas id="soul" width="800" height="800" aria-label="The soul"></canvas></div>
-      <div class="soulmurmur" id="soulmurmur">${esc(FEED[0]?.text ?? '')}</div>
-      <div class="glass askbox" style="margin-top:14px"><label for="ask" class="label">Ask the soul</label><input id="ask" placeholder="${scope ? 'Ask about ' + esc(scope) + '…' : 'Ask about any project…'}"><div class="tiny" style="color:var(--wait);margin-top:6px;opacity:0.85">Offline and free here. For full answers, type /soul &lt;question&gt; in a Claude Code chat: it runs on your subscription.</div></div>
+  const list = CHATS.filter(inScope);
+  const b = badges();
+  const pill = VIEWS.map(([id, l]) => { const [n, k] = b[id] ?? [0]; return `<button type="button" class="hudnav-i" data-view="${id}" ${id === 'today' ? 'aria-current="page"' : ''} title="${l}">${ICON[id]}<span>${l}</span>${n ? `<span class="nb ${k}">${n}</span>` : ''}</button>`; }).join('');
+  return `<section class="hud" aria-label="The soul">
+    <canvas id="soul" class="hud-soul" width="1100" height="1100" aria-label="The soul"></canvas>
+    <header class="hud-top">
+      <div class="hud-brand"><span class="hud-mark"></span><b>REKA</b>
+        <button type="button" class="hud-scope" id="hudScope" title="Choose a project (Ctrl+K)"><i class="dot" style="background:${scope ? P(scope).hue : 'var(--accent)'}"></i>${scope ? esc(scope) : 'All projects'}<span class="dim">▾</span></button></div>
+      <nav class="hudnav" aria-label="Places">${pill}</nav>
+      <div class="hud-right">
+        <div class="hud-m"><small>Tokens today</small><b>138.1M</b></div><div class="hud-m"><small>Est. cost</small><b>$51.21</b></div>
+        <div class="hud-m"><small>Chats live</small><b>${list.filter((c) => c.state === 'working').length} / ${list.length}</b></div>
+        <button type="button" class="hud-btn" id="hudSearch" title="Search or jump to (Ctrl+K)">${ICON.search}</button>
+        <button type="button" class="hud-btn" id="hudLock" title="Lock (Ctrl+Shift+L)">${ICON.lock}</button>
+      </div>
+    </header>
+    <aside class="hud-panel hud-left"><div class="label">Happening now</div><div id="soulnow" style="margin-top:8px">${nowHTML()}</div></aside>
+    <aside class="hud-panel hud-right-panel"><div class="label" style="display:flex;gap:8px;align-items:center"><span class="livedot"></span>Latest</div><ol class="feed" id="soulfeed">${feedHTML()}</ol></aside>
+    <div class="hud-bottom">
+      <div class="soulmurmur" id="soulmurmur">${esc(FEED.find((f) => !scope || feedProject(f) === scope)?.text ?? '')}</div>
+      <div class="hud-ask"><span style="color:var(--accent);display:flex">${ICON.spark}</span><label for="ask" class="sr">Ask the soul</label><input id="ask" placeholder="${scope ? 'Ask the soul of ' + esc(scope) + '…' : 'Ask the soul about any project…'}" autocomplete="off"><kbd>Enter</kbd></div>
+      <div class="tiny" style="color:var(--wait);opacity:0.8;text-align:center">Offline and free here. For full answers, type /soul &lt;question&gt; in a Claude Code chat: it runs on your subscription.</div>
     </div>
-    <section class="glass feedpanel"><div class="label" style="display:flex;gap:8px;align-items:center"><span class="livedot"></span>Latest</div><ol class="feed" id="soulfeed">${feedHTML()}</ol></section>
-  </div>`;
+  </section>`;
 }
 function renderChatsView() {
   const list = CHATS.filter(inScope);
@@ -1103,6 +1159,8 @@ function paint(changedView) {
     main.innerHTML = `<div class="view-in">${view === 'today' ? renderToday() : view === 'chats' ? renderChatsView() : view === 'tasks' ? renderTasks() : view === 'inventory' ? renderInventory() : renderProjectsView()}</div>`;
     if (view === 'today') startSoul(document.getElementById('soul'), scope ? P(scope).hue : '#34d399');
   }
+  // The soul is a full page: no sidebar and no top bar, only its HUD.
+  document.body.classList.toggle('immersive', view === 'today');
   paintChrome();
 }
 function go(v) { view = v; drawer = null; paint(); window.scrollTo(0, 0); }
@@ -1172,6 +1230,10 @@ document.addEventListener('keydown', (e) => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[tabindex]')) { e.preventDefault(); e.target.click(); }
 });
 document.getElementById('kbtn').addEventListener('click', openPalette);
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#hudSearch') || e.target.closest('#hudScope')) openPalette();
+  if (e.target.closest('#hudLock')) openLock();
+});
 document.getElementById('askBtn').addEventListener('click', () => { go('today'); setTimeout(() => document.getElementById('ask')?.focus(), 50); });
 
 // ---- The soul: a breathing shape, drawn the same way for the Soul place and the lock screen ----
