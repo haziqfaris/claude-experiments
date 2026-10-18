@@ -113,6 +113,6 @@ export function offlineAnswer(snap: Snapshot, details: ProjectDetail[]): string 
     if (s?.files.length) lines.push(`Recently touched: ${s.files.slice(0, 4).map((f) => path.basename(f.path)).join(', ')}`);
     if (d.git?.dirty.length) lines.push(`${d.git.dirty.length} uncommitted change(s).`);
   }
-  lines.push('', '[offline: no Claude credentials found, so this is a stats summary. Set ANTHROPIC_API_KEY to talk to the Soul Engine.]');
+  lines.push('', '[offline summary, free. For full answers, type /soul in any Claude Code chat: it runs on your subscription. To answer here through the API instead, set SOUL_ASK_API=on and ANTHROPIC_API_KEY.]');
   return lines.join('\n');
 }

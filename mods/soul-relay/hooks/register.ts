@@ -126,6 +126,17 @@ const S = {
   // Tasks this worker received that its next finished turn answers; several chats may send at once.
   tasks: [] as { id: string; replyTo: string; replyAddress: string | null; from: string }[],
   pending: new Map<string, Pending>(),
+  // The soul: which project this chat belongs to, and the routes for its latest plan.
+  project: null as { name: string; repos: string[] } | null,
+  plan: { steps: [] as string[], at: 0, routes: [] as Route[], text: '', dirty: false },
+}
+
+interface Route {
+  step: string
+  model: 'opus' | 'sonnet' | 'haiku'
+  where: string
+  why: string
+  instruction: string | null
 }
 
 const ledgerKey = () => `ledger:${S.sessionId}`
@@ -135,7 +146,154 @@ function showStatus($: Engine) {
   if (S.workerName) parts.push(`⇄ worker ${S.workerName}${S.tasks.length ? ' · busy' : ''}`)
   if (S.ledger.count) parts.push(`⇄ ${S.ledger.count} delegated · saved ≈ ${fmtUsd(S.ledger.saved)}`)
   if (S.pending.size) parts.push(`${S.pending.size} out`)
+  if (S.plan.routes.length) {
+    const cheap = S.plan.routes.filter(r => r.model !== 'opus').length
+    if (cheap) parts.push(`◉ plan: ${cheap}/${S.plan.routes.length} steps fit cheaper models · /soul-routes`)
+  }
   $.ui.status(parts.length ? parts.join(' · ') : undefined)
+}
+
+// ---- The soul: read-only answers from the Soul Engine hub, on this session's own model ----
+// Everything the hub returns is computed on this machine from transcripts and repos (no API calls),
+// so asking the soul inside Claude Code runs on your Claude subscription.
+
+const HUB_DOWN = 'The Soul Engine hub is not running. Start it with `npm run dev` (or `npx tsx server/index.ts`) in soul-engine/.'
+
+async function hub<T>($: Engine, path: string, body?: unknown): Promise<T | null> {
+  if (!S.hubUrl) return null
+  try {
+    const r = await $.http.fetch(`${S.hubUrl}${path}`, body === undefined ? undefined : {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    // Errors come back as { error } and are shown as they are.
+    return JSON.parse(r.text) as T
+  } catch {
+    return null
+  }
+}
+
+const q = (params: Record<string, string | number | null | undefined>) =>
+  Object.entries(params).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&')
+
+/** A project soul answers for its own project unless another one is named. */
+const projectFor = (asked: unknown) => (typeof asked === 'string' && asked.trim() ? asked.trim() : S.project?.name ?? null)
+
+async function soulText($: Engine, path: string): Promise<string> {
+  const r = await hub<{ text?: string; markdown?: string; error?: string }>($, path)
+  return r ? r.text ?? r.markdown ?? r.error ?? '(empty)' : HUB_DOWN
+}
+
+/** Steps of a plan the chat just wrote: plan mode, a to-do list, or tasks it created. */
+function planSteps(tool: string, input: Record<string, unknown>): string[] | null {
+  if (tool === 'ExitPlanMode' && typeof input.plan === 'string') {
+    const steps = input.plan.split('\n').map(l => /^\s*(?:\d+[.)]|[-*])\s+(.+)/.exec(l)?.[1]).filter((x): x is string => !!x)
+    return steps.length ? steps.map(s => clip(s.replace(/\*\*/g, ''), 140)) : null
+  }
+  if (tool === 'TodoWrite' && Array.isArray(input.todos)) {
+    return input.todos.map(t => clip(String((t as { content?: unknown }).content ?? ''), 140)).filter(Boolean)
+  }
+  return null
+}
+
+async function refreshRoutes($: Engine) {
+  if (!S.plan.dirty || !S.plan.steps.length) return
+  S.plan.dirty = false
+  const r = await hub<{ routes: Route[]; text: string }>($, '/api/soul/routes', { steps: S.plan.steps, cwd: await $.session.cwd() })
+  if (!r) return
+  S.plan.routes = r.routes
+  S.plan.text = r.text
+  const n = (m: string) => r.routes.filter(x => x.model === m).length
+  if (n('haiku') + n('sonnet')) $.ui.toast(`Soul: ${r.routes.length}-step plan · ${n('haiku')} fit Haiku · ${n('sonnet')} fit Sonnet · /soul-routes`)
+  showStatus($)
+}
+
+const SOUL_TOOLS: { name: string; description: string; properties: Record<string, unknown>; required?: string[] }[] = [
+  {
+    name: 'soul_inventory',
+    description: 'REKA Soul Engine inventory of a project: tools and services, API keys by name and the API each calls (never secret values), outside APIs, hosting, domains, e-mail addresses, sign-in, jobs and defaults, with file:line evidence. Defaults to this chat\'s project. Pass `query` to search instead of listing.',
+    properties: { query: { type: 'string', description: 'Words to search for, e.g. "resend", "noreply", "SERVICE_ROLE"' }, project: { type: 'string', description: 'Another project name; omit for this chat\'s project, or "all" for every project' } },
+  },
+  {
+    name: 'soul_plan_routes',
+    description: 'Suggested model and chat for each step of this chat\'s latest plan (Opus keeps judgment, Sonnet for builds and tests, Haiku for searching and writing), with a ready instruction per step. Suggestions only.',
+    properties: {},
+  },
+  {
+    name: 'soul_status',
+    description: 'Where each project is in the REKA Build Flow (steps 01 to 09, estimated from its repos unless set), tasks and phases left, whether its addresses are live, the latest release tag, and the next step. Defaults to every project; pass `project` for one, or "this" for this chat\'s project.',
+    properties: { project: { type: 'string', description: 'A project name, or "this"; omit for every project' } },
+  },
+  {
+    name: 'soul_roadmap',
+    description: 'A project\'s roadmap as its repo keeps it (docs/ROADMAP.md): horizons (Now, Next, Later), items with their status, owner and date, and the recent commits that changed it. Pass `days` to get what changed instead: items added, removed, finished, moved between horizons, or re-dated. Defaults to this chat\'s project.',
+    properties: { project: { type: 'string', description: 'Omit for this chat\'s project, or "all"' }, days: { type: 'integer', description: 'Show changes over the last N days instead of the roadmap' } },
+  },
+  {
+    name: 'soul_overview',
+    description: 'What every live Claude Code chat on this machine is doing right now, which hand-offs are running, and routing suggestions (cheaper models, fresh chats, chats clashing in one folder).',
+    properties: {},
+  },
+  {
+    name: 'soul_changes',
+    description: 'What changed in a project\'s keys, APIs, services, hosting, domains, addresses, sign-in and jobs over the last N days.',
+    properties: { days: { type: 'integer', description: 'Days to look back (default 7)' }, project: { type: 'string', description: 'Omit for this chat\'s project, or "all"' } },
+  },
+  {
+    name: 'soul_access_register',
+    description: 'Draft an Access and Account Register for a project from its inventory.',
+    properties: { project: { type: 'string', description: 'Omit for this chat\'s project' } },
+  },
+  {
+    name: 'soul_rotation_checklist',
+    description: 'Every repo, CI secret, host and file to update when one API key is rotated.',
+    properties: { key: { type: 'string', description: 'Variable name, e.g. RESEND_API_KEY' } },
+    required: ['key'],
+  },
+]
+
+async function runSoulTool($: Engine, name: string, input: Record<string, unknown>): Promise<string> {
+  const asked = input.project === 'all' ? null : projectFor(input.project)
+  switch (name) {
+    case 'soul_inventory':
+      return soulText($, `/api/soul/inventory?${q({ project: asked, q: typeof input.query === 'string' ? input.query : null })}`)
+    case 'soul_plan_routes': {
+      await refreshRoutes($)
+      if (S.plan.text) return S.plan.text
+      return soulText($, `/api/soul/plan?${q({ session: S.sessionId })}`)
+    }
+    case 'soul_overview':
+      return soulText($, '/api/soul/overview')
+    case 'soul_roadmap': {
+      const days = Number(input.days) || 0
+      if (!days) return soulText($, `/api/soul/roadmap?${q({ project: asked })}`)
+      const r = await hub<{ firstRun?: boolean; projects?: { project: string; file: string; commits: { ts: number; subject: string }[]; added: { title: string; section: string }[]; removed: { title: string; section: string }[]; changed: { title: string; what: string; from: string; to: string }[] }[]; error?: string }>($, `/api/roadmap/changes?${q({ days, project: asked })}`)
+      if (!r) return HUB_DOWN
+      if (r.error) return r.error
+      const lines: string[] = [`Roadmap changes over the last ${days} days${asked ? ` in ${asked}` : ''}:`]
+      if (r.firstRun) lines.push('(No earlier snapshot yet: only commits to the roadmap files are listed. Snapshots are saved daily while the hub runs.)')
+      for (const p of r.projects ?? []) {
+        lines.push('', `${p.project} (${p.file})`)
+        for (const c of p.commits) lines.push(`- commit ${new Date(c.ts).toISOString().slice(0, 10)}: ${c.subject}`)
+        for (const a of p.added) lines.push(`- added: ${a.title} (${a.section})`)
+        for (const a of p.removed) lines.push(`- removed: ${a.title} (was in ${a.section})`)
+        for (const c of p.changed) lines.push(`- ${c.what}: ${c.title}: ${c.from} → ${c.to}`)
+      }
+      if (!(r.projects ?? []).length) lines.push('No changes.')
+      return lines.join('\n')
+    }
+    case 'soul_status':
+      return soulText($, `/api/soul/status?${q({ project: input.project === 'this' ? S.project?.name ?? null : typeof input.project === 'string' && input.project !== 'all' ? input.project : null })}`)
+    case 'soul_changes':
+      return soulText($, `/api/inventory/changes?${q({ days: Number(input.days) || 7, project: asked })}`)
+    case 'soul_access_register':
+      return asked ? soulText($, `/api/docs/access-register?${q({ project: asked })}`) : 'Name a project: this chat is not inside one from projects.local.json.'
+    case 'soul_rotation_checklist':
+      return typeof input.key === 'string' && input.key ? soulText($, `/api/docs/rotation?${q({ key: input.key })}`) : 'Pass the key name.'
+    default:
+      return `Unknown soul tool ${name}.`
+  }
 }
 
 async function record(
@@ -262,6 +420,28 @@ async function becomeWorker($: Engine, wanted: string) {
   return name
 }
 
+// ---- Messages you sent from the Soul Engine dashboard into this chat (after confirming there) ----
+const OUTBOX_MS = 5_000
+let outboxTimer: Timer | null = null
+let outboxBusy = false
+
+async function collectOutbox($: Engine) {
+  if (outboxBusy || !S.hubUrl || !S.sessionId) return
+  outboxBusy = true
+  try {
+    const items = await hub<{ id: string; text: string }[]>($, `/api/outbox?${q({ session: S.sessionId })}`)
+    for (const m of Array.isArray(items) ? items : []) {
+      // Delivered to this chat as a message, so it starts a turn here, on this chat's own model.
+      const sent = await $.session.send({ to: { sessionId: S.sessionId }, text: `[Soul Engine] ${m.text}` })
+      $.ui.toast(sent.isDelivered ? 'Soul Engine: a message from the dashboard arrived' : `Soul Engine: could not deliver a dashboard message (${sent.reason ?? 'unknown reason'})`)
+    }
+  } catch {
+    // The hub is optional; try again on the next tick.
+  } finally {
+    outboxBusy = false
+  }
+}
+
 async function stopWorker($: Engine) {
   S.heartbeat?.cancel()
   S.heartbeat = null
@@ -279,6 +459,8 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     S.sessionId = await $.session.id()
+    outboxTimer?.cancel()
+    outboxTimer = $.clock.every(OUTBOX_MS, () => { void collectOutbox($) })
     S.ledger = ((await $.store.get(ledgerKey())) as Ledger | undefined) ?? S.ledger
 
     await $.tool.register({
@@ -328,11 +510,27 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'soul-workers', description: 'List running worker sessions' })
     await $.command.register({ name: 'soul-relay', description: 'Show what this session has delegated and saved' })
 
+    // The soul of this chat's project, answering on this session's own model.
+    S.project = (await hub<{ project: { name: string; repos: string[] } | null }>($, `/api/soul/scope?${q({ cwd: await $.session.cwd() })}`))?.project ?? null
+    for (const t of SOUL_TOOLS) {
+      await $.tool.register({
+        name: t.name,
+        description: t.description + (S.project ? ` This chat is in project ${S.project.name} (${S.project.repos.join(', ')}).` : ''),
+        inputSchema: { type: 'object', properties: t.properties, required: t.required ?? [], additionalProperties: false },
+        isDeferred: true,
+      })
+    }
+    await $.command.register({ name: 'soul', description: "The soul of this chat's project: what it knows, and what to ask", argumentHint: '[question]' })
+    await $.command.register({ name: 'soul-routes', description: "Suggested model and chat for each step of this chat's plan" })
+    await $.command.register({ name: 'soul-roadmap', description: "Draft or update this project's roadmap (docs/ROADMAP.md) in the REKA format, from its plans" })
+
     showStatus($)
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
+    outboxTimer?.cancel()
+    outboxTimer = null
     if (S.workerName) await stopWorker($)
     return next(e)
   })
@@ -400,6 +598,74 @@ export const register: Register = (on, options) => {
     return { text: `Worker sessions:\n${lines.join('\n')}` }
   })
 
+  // ---- The soul ----
+
+  for (const t of SOUL_TOOLS) {
+    on('tool.call', { tool: `mcp__soul-relay__${t.name}` }, async ($, e) => ({
+      result: await runSoulTool($, t.name, e as unknown as Record<string, unknown>),
+    })).catch(() => ({ deny: 'soul-relay: the Soul Engine hub did not answer.' }))
+  }
+
+  // Plans: when the chat writes one, suggest where each step could run. Nothing is sent.
+  for (const tool of ['ExitPlanMode', 'TodoWrite']) {
+    on('tool.call', { tool }, async ($, e, next) => {
+      const steps = planSteps(tool, e as unknown as Record<string, unknown>)
+      if (steps?.length && steps.join('\n') !== S.plan.steps.join('\n')) {
+        S.plan = { ...S.plan, steps, at: await $.clock.now(), dirty: true }
+      }
+      return next(e)
+    }).catch(($, e, next) => next(e))
+  }
+
+  on('command.run', { command: 'soul-routes' }, async $ => {
+    await refreshRoutes($)
+    const text = S.plan.text || (await soulText($, `/api/soul/plan?${q({ session: S.sessionId })}`))
+    return { text, context: S.plan.routes.length ? [`The user looked at the soul's suggested routes for the plan:\n${text}\nThey are suggestions; only act on them if the user asks.`] : undefined }
+  })
+
+  // Each project writes its own roadmap; the soul hands this chat the format and what it has now.
+  on('command.run', { command: 'soul-roadmap' }, async $ => {
+    const name = S.project?.name ?? null
+    const [template, current] = await Promise.all([
+      soulText($, '/api/soul/roadmap-template'),
+      name ? soulText($, `/api/soul/roadmap?${q({ project: name })}`) : Promise.resolve('This folder is not in a project in projects.local.json.'),
+    ])
+    if (template === HUB_DOWN) return { text: HUB_DOWN }
+    return {
+      text: `◉ Roadmap for ${name ?? 'this repo'}: the format and what the soul sees now are in this chat. Ask Claude to draft or update docs/ROADMAP.md.`,
+      context: [
+        `The user wants ${name ? `the ${name}` : 'this'} project's roadmap written or updated as docs/ROADMAP.md in the repo, in the REKA roadmap format below. ` +
+          'Build it from the project\'s own plans, build plans, PROGRESS.md, readiness verdicts and open issues (read them), not from memory. ' +
+          'Keep existing item IDs; never reuse an ID. Put each item under Now, Next or Later with a status (Planned, In progress, Blocked or Needs decision, Done with the date). ' +
+          'Show the draft and ask before writing the file; then commit it with a message that says what changed and why.\n\n' +
+          `REKA roadmap format:\n${template}\n\nWhat the Soul Engine reads for this project now:\n${current}`,
+      ],
+    }
+  })
+
+  on('command.run', { command: 'soul' }, async ($, e) => {
+    const question = e.args.trim()
+    const who = S.project ? `the soul of ${S.project.name} (${S.project.repos.join(', ')})` : 'the main REKA soul (this folder is not in a project)'
+    if (!question) {
+      const overview = await soulText($, '/api/soul/overview')
+      return {
+        text: [
+          `◉ This chat talks to ${who}.`,
+          'Ask in plain words, for example: "which API keys does this project use?", "where is it hosted?", "what changed this week?", "split my plan across models".',
+          "Claude answers with the soul_* tools, on this chat's own model, so it uses your subscription and no API credits.",
+          '',
+          overview,
+        ].join('\n'),
+      }
+    }
+    // A question: hand the project's inventory to this chat so it answers here.
+    const inv = await soulText($, `/api/soul/inventory?${q({ project: S.project?.name ?? null })}`)
+    return {
+      text: `◉ Asking ${who}…`,
+      context: [`The user asked ${who}: "${question}". Answer from this inventory, and use the soul_* tools if you need more. Never print secret values.\n\n${inv.slice(0, 30_000)}`],
+    }
+  })
+
   on('command.run', { command: 'soul-relay' }, async $ => {
     const lines = [
       `Delegated this session: ${S.ledger.count}`,
@@ -447,6 +713,7 @@ export const register: Register = (on, options) => {
   // Turn ends: a worker sends its report back; cheaper subagents count toward savings.
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
+    if (e.agentId === undefined && S.plan.dirty) await refreshRoutes($).catch(() => {})
     if (e.agentId === undefined && S.tasks.length && S.workerName && !e.isAborted) {
       // Every task that arrived before this turn ended was handled in it (deliveries fold into a running turn).
       const answered = S.tasks.splice(0)

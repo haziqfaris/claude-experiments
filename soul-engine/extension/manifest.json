@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "REKA Soul Engine",
+  "version": "0.1.0",
+  "description": "Your projects, chats and live sites from the Soul Engine hub on this machine, in a side panel.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqE7FsxsigarJ7IY0bQLJpjxX7C9etMSkNxEptNFCjx+EFRJzWXCgDLnI65BLjNukE3h4x0e1cpwd4IbX00UYezwyAs6QRuh5rcuvG4Fh60wUY1Pr9QaSn0+ul2D5k/7Pu3fj5IM/HKchlGhFUBEk7RsoXhVYe8HtKIOepjiPBkiYj8mtUryeeCusJkzPzTqvjkSq9UZbuZ5XCcwwTIxdZXUt/3mR91ugWCD/gCX+tfHU44wVNRDyt/i1J+zKMccEMWdCabgu8HTIKDq3xF3XITTx2iqAhqwjUlyLJTsjDf0S5JcLmuViLGAGf7i1tYL2LwP6qR7tqUOsQW/ToDY4rQIDAQAB",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "REKA Soul Engine",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "sidePanel",
+    "alarms",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://localhost:7777/*",
+    "http://127.0.0.1:7777/*"
+  ],
+  "minimum_chrome_version": "116"
+}

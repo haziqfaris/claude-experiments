@@ -79,3 +79,26 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Relay: work that is running breathes */
+@media (prefers-reduced-motion: no-preference) {
+  .relay-run { animation: relay-run 1.6s ease-in-out infinite; }
+}
+@keyframes relay-run {
+  50% { opacity: 0.7; }
+}
+
+/* Away mode: the soul drifts slowly; the hint breathes */
+@media (prefers-reduced-motion: no-preference) {
+  .lock-drift { animation: lock-drift 38s ease-in-out infinite; }
+  .lock-hint { animation: lock-hint 6s ease-in-out infinite; }
+}
+@keyframes lock-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(-2.5%, 1.5%) scale(1.04); }
+  50% { transform: translate(1.5%, -2%) scale(0.98); }
+  75% { transform: translate(2.5%, 1%) scale(1.03); }
+}
+@keyframes lock-hint {
+  50% { opacity: 0.35; }
+}

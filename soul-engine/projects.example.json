@@ -1,0 +1,8 @@
+{
+  "_help": "Copy to projects.local.json (git-ignored) to group repos into projects in the inventory. Keys are project names; repos are GitHub repo names or local folder names.",
+  "projects": {
+    "Example product": { "kind": "product", "repos": ["example-app", "example-api"] },
+    "Example client": { "kind": "client", "repos": ["client-portal"] },
+    "Internal": { "kind": "internal", "repos": ["team-tools"] }
+  }
+}
