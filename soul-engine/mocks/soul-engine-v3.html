@@ -291,6 +291,36 @@ td { padding: 11px 16px; border-top: 1px solid var(--outline); }
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 70; background: #e8edf5; color: #0e1626; font-weight: 500; padding: 12px 20px; border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); max-width: calc(100% - 32px); }
 @media (max-width: 1000px) { .ctxpanel { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .ctxpanel { grid-template-columns: minmax(0, 1fr); } }
+
+/* Splits board */
+.lt-head .seg { margin-left: 8px; }
+.lt-body.wide { grid-template-columns: minmax(0, 1fr) 260px; }
+.sboard { display: grid; gap: 8px; overflow-x: auto; }
+.srow { display: grid; grid-template-columns: 210px repeat(3, minmax(170px, 1fr)); gap: 10px; align-items: start; min-width: 720px; }
+.shead { padding: 0 2px; }
+.slane { display: flex; gap: 10px; align-items: center; text-align: left; padding: 10px; border-radius: 14px; background: var(--surface-2); }
+.slane:hover { background: var(--surface-3); }
+.scell { display: grid; gap: 8px; padding: 8px; min-height: 64px; border-radius: 14px; background: rgba(14, 22, 38, 0.6); align-content: start; }
+.scard { padding: 8px 10px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--outline); }
+.scard.running { border-color: color-mix(in srgb, var(--m) 50%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--m) 20%, transparent); }
+.scard.returned { opacity: 0.85; }
+.scard.queued { opacity: 0.6; }
+
+/* Main soul: now, the soul, the latest */
+.soulgrid { display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+.soulgrid .soulwrap { height: min(58vh, 560px); }
+.nowpanel, .feedpanel { padding: 14px 16px; }
+.nowrow { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; padding: 9px 10px; border-radius: 14px; margin-bottom: 4px; }
+.nowrow:hover { background: var(--surface-2); }
+.nowrow .dot { margin-top: 6px; }
+.feed { list-style: none; margin: 8px 0 0; padding: 0; }
+.feed li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 6px; border-radius: 12px; }
+.feed li[data-chat] { cursor: pointer; }
+.feed li[data-chat]:hover { background: var(--surface-2); }
+.ficon { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; font-size: 13px; }
+.soulmurmur { text-align: center; min-height: 22px; margin-top: -10px; font-size: 13px; color: var(--accent); }
+@media (prefers-reduced-motion: no-preference) { .feed li.fresh { animation: fresh 0.8s ease-out; } }
+@media (max-width: 1150px) { .soulgrid { grid-template-columns: minmax(0, 1fr); } .lt-body.wide { grid-template-columns: minmax(0, 1fr); } }
 </style>
 
 <div class="app">
@@ -635,19 +665,6 @@ function topoSummary(chatId) {
   const r = kids.filter((k) => k.status === 'running').length, m = kids.filter((k) => k.status === 'returned').length, q = kids.filter((k) => k.status === 'queued').length;
   return `${kids.length} split${kids.length === 1 ? '' : 's'} · <span style="color:var(--work)">${r} running</span> · <span style="color:var(--done)">${m} merged</span>${q ? ` · ${q} queued` : ''}`;
 }
-function renderLiveTopology() {
-  const live = Object.keys(SPLITS).filter((id) => { const c = CHATS.find((x) => x.id === id); return inScope(c); });
-  if (!live.length) return '';
-  return `<section class="glass livetopo">
-    <div class="lt-head"><span class="livedot"></span><b>Live splits</b><span class="tiny muted">which chats split work across models right now, and what merged back</span>
-      <span class="legend"><i style="--c:#c4b5fd"></i>Opus<i style="--c:#93c5fd"></i>Sonnet<i style="--c:#5eead4"></i>Haiku<i class="back"></i>merged</span></div>
-    <div class="lt-body">
-      <div class="clusters" id="clusters">${live.map((id) => { const c = CHATS.find((x) => x.id === id); return `<button type="button" class="cluster" data-chat="${id}">${topologySVG(id, false)}<div class="small" style="font-weight:500">${esc(c.name)}</div><div class="tiny muted">${esc(c.project)} · ${topoSummary(id)}</div></button>`; }).join('')}</div>
-      <ol class="eventlog" id="eventlog">${TOPO_LOG.filter((e) => inScope(CHATS.find((x) => x.id === e[1]))).slice(0, 7).map((e) => `<li><span class="dim">${e[0]}</span><span>${esc(e[2])}</span></li>`).join('')}</ol>
-    </div>
-  </section>`;
-}
-
 // Simulated feed for the mock: a split starts, runs, and merges back every few seconds.
 setInterval(() => {
   const all = Object.entries(SPLITS).flatMap(([cid, ks]) => ks.map((k) => ({ cid, k })));
@@ -663,14 +680,19 @@ setInterval(() => {
     all.forEach((x, i) => { x.k.status = i % 3 === 0 ? 'running' : 'queued'; });
     event = [nowClock(), 'c1', 'New plan: work split again across Sonnet and Haiku'];
   }
+  TOPO_LOG.forEach((e) => { delete e.fresh; }); event.fresh = true;
   TOPO_LOG.unshift(event); TOPO_LOG.length = Math.min(TOPO_LOG.length, 30);
+  const kind = /came back|merged/.test(event[2]) ? 'merge' : 'split';
+  FEED.forEach((f) => { delete f.fresh; });
+  FEED.unshift({ t: event[0], kind, chat: event[1], text: event[2], fresh: true }); FEED.length = Math.min(FEED.length, 40);
   // Redraw only the live parts, so nothing else on the page jumps.
-  const cl = document.getElementById('clusters');
-  if (cl) cl.innerHTML = Object.keys(SPLITS).filter((id) => inScope(CHATS.find((x) => x.id === id))).map((id) => { const c = CHATS.find((x) => x.id === id); return `<button type="button" class="cluster" data-chat="${id}">${topologySVG(id, false)}<div class="small" style="font-weight:500">${esc(c.name)}</div><div class="tiny muted">${esc(c.project)} · ${topoSummary(id)}</div></button>`; }).join('');
-  const lg = document.getElementById('eventlog');
-  if (lg) lg.innerHTML = TOPO_LOG.filter((e) => inScope(CHATS.find((x) => x.id === e[1]))).slice(0, 7).map((e, i) => `<li class="${i === 0 ? 'fresh' : ''}"><span class="dim">${e[0]}</span><span>${esc(e[2])}</span></li>`).join('');
+  const sv = document.getElementById('splitview'); if (sv) sv.innerHTML = splitViewHTML();
+  const lg = document.getElementById('eventlog'); if (lg) lg.innerHTML = logHTML();
   const big = document.getElementById('bigtopo');
-  if (big) { big.innerHTML = topologySVG(big.dataset.chat, true); const s = document.getElementById('bigsum'); if (s) s.innerHTML = topoSummary(big.dataset.chat); }
+  if (big) { big.innerHTML = bigSplitHTML(big.dataset.chat); const sm = document.getElementById('bigsum'); if (sm) sm.innerHTML = topoSummary(big.dataset.chat); }
+  const fd = document.getElementById('soulfeed'); if (fd) fd.innerHTML = feedHTML();
+  const nw = document.getElementById('soulnow'); if (nw) nw.innerHTML = nowHTML();
+  const mm = document.getElementById('soulmurmur'); if (mm) mm.textContent = event[2];
 }, 3500);
 
 // ---- Each chat in its project's context: stage, readiness, roadmap, and what is next ----
@@ -708,6 +730,82 @@ function closeSend() { document.getElementById('sendBox').hidden = true; sendTo 
 function toast(text) {
   const t = document.getElementById('toast'); t.textContent = text; t.hidden = false;
   clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, 4200);
+}
+
+// ---- Splits as a board: one row per chat, columns Queued, Running, Merged back ----
+let topoMode = 'diagram';
+const SPLIT_COLS = [['queued', 'Queued', 'var(--dim)'], ['running', 'Running', 'var(--work)'], ['returned', 'Merged back', 'var(--done)']];
+function splitCard(k) {
+  return `<div class="scard ${k.status}" style="--m:${MODEL_C[k.model]}">
+    <div style="display:flex;gap:6px;align-items:center"><span class="model" style="--m:${MODEL_C[k.model]}">${k.model}</span><span class="tiny muted">${esc(k.kind)}</span></div>
+    <div class="small" style="font-weight:500;margin-top:4px">${esc(k.label)}</div>
+    <div class="tiny dim">${k.status === 'returned' ? `merged ↩ · ${k.took} · $${k.cost.toFixed(2)}` : k.status === 'running' ? `running${k.took ? ` · ${k.took}` : ''}` : 'waiting its turn'}</div>
+  </div>`;
+}
+function splitBoard(ids) {
+  return `<div class="sboard">
+    <div class="srow shead"><span></span>${SPLIT_COLS.map(([, l, c]) => `<span class="label" style="display:flex;gap:6px;align-items:center"><i class="dot" style="background:${c}"></i>${l}</span>`).join('')}</div>
+    ${ids.map((id) => {
+      const c = CHATS.find((x) => x.id === id), p = P(c.project), ks = SPLITS[id] ?? [];
+      return `<div class="srow">
+        <button type="button" class="slane" data-chat="${id}"><span class="avatar sm" style="--hue:${p.hue}">${esc(p.name[0])}</span><span style="min-width:0"><span class="small" style="font-weight:500;display:block">${esc(c.name)}</span><span class="tiny muted">${esc(c.project)} · ${c.model.split(' ')[0]} main chat</span></span></button>
+        ${SPLIT_COLS.map(([s]) => `<div class="scell">${ks.filter((k) => k.status === s).map(splitCard).join('') || '<span class="tiny dim">—</span>'}</div>`).join('')}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+const liveIds = () => Object.keys(SPLITS).filter((id) => inScope(CHATS.find((x) => x.id === id)));
+const clusterHTML = (id) => { const c = CHATS.find((x) => x.id === id); return `<button type="button" class="cluster" data-chat="${id}">${topologySVG(id, false)}<div class="small" style="font-weight:500">${esc(c.name)}</div><div class="tiny muted">${esc(c.project)} · ${topoSummary(id)}</div></button>`; };
+function splitViewHTML() {
+  return topoMode === 'board' ? splitBoard(liveIds()) : `<div class="clusters">${liveIds().map(clusterHTML).join('')}</div>`;
+}
+const modeToggle = () => `<span class="seg" role="group" aria-label="Show splits as"><button type="button" aria-pressed="${topoMode === 'diagram'}" data-topomode="diagram">Diagram</button><button type="button" aria-pressed="${topoMode === 'board'}" data-topomode="board">Board</button></span>`;
+const logHTML = () => TOPO_LOG.filter((e) => inScope(CHATS.find((x) => x.id === e[1]))).slice(0, 7).map((e, i) => `<li class="${i === 0 && e.fresh ? 'fresh' : ''}"><span class="dim">${e[0]}</span><span>${esc(e[2])}</span></li>`).join('');
+
+function renderLiveTopology() {
+  if (!liveIds().length) return '';
+  return `<section class="glass livetopo">
+    <div class="lt-head"><span class="livedot"></span><b>Live splits</b><span class="tiny muted">which chats split work across models right now, and what merged back</span>
+      <span class="legend"><i style="--c:#c4b5fd"></i>Opus<i style="--c:#93c5fd"></i>Sonnet<i style="--c:#5eead4"></i>Haiku<i class="back"></i>merged</span>${modeToggle()}</div>
+    <div class="lt-body ${topoMode === 'board' ? 'wide' : ''}">
+      <div id="splitview">${splitViewHTML()}</div>
+      <ol class="eventlog" id="eventlog">${logHTML()}</ol>
+    </div>
+  </section>`;
+}
+function bigSplitHTML(id) { return topoMode === 'board' ? splitBoard([id]) : topologySVG(id, true); }
+
+// ---- The main soul: the soul in the middle, what is happening now, and the latest events ----
+const FEED = [
+  { t: '11:41', kind: 'split', chat: 'c3', text: 'Live test and handover pack split “Re-run the smoke test” to a Sonnet worker' },
+  { t: '11:39', kind: 'merge', chat: 'c1', text: '“Find every report job” came back from Haiku and merged' },
+  { t: '11:30', kind: 'ask', chat: 'c2', text: 'Fix SLD rendering on Basic is waiting for your answer' },
+  { t: '11:22', kind: 'commit', chat: 'c1', text: '3 commits in bess-ems-dashboard: decision settings, report e-mails' },
+  { t: '10:58', kind: 'site', project: 'PLExyz', text: 'crowd.antarax.ai/spectra stopped answering' },
+  { t: '10:40', kind: 'roadmap', project: 'PLExyz', text: 'Roadmap: R-07 Ready → Done; R-04 moved Next → Now' },
+  { t: '10:12', kind: 'ask', chat: 'c5', text: 'Auth e-mail and pilot codes asked whether to use Resend for sign-in e-mails' },
+  { t: '09:47', kind: 'inventory', project: 'PlusXnergy', text: 'New API key in the inventory: RESEND_API_KEY (Resend)' },
+];
+const FEED_ICON = { split: ['⑂', 'var(--work)'], merge: ['↩', 'var(--done)'], ask: ['?', 'var(--wait)'], commit: ['●', 'var(--muted)'], site: ['!', 'var(--red)'], roadmap: ['▤', 'var(--accent)'], inventory: ['◇', '#f0abfc'] };
+const feedProject = (f) => f.project ?? CHATS.find((c) => c.id === f.chat)?.project;
+function feedHTML() {
+  return FEED.filter((f) => !scope || feedProject(f) === scope).slice(0, 12).map((f, i) => {
+    const [ic, col] = FEED_ICON[f.kind] ?? ['·', 'var(--muted)'];
+    const pr = feedProject(f), p = pr ? P(pr) : null;
+    return `<li class="${i === 0 && f.fresh ? 'fresh' : ''}" ${f.chat ? `data-chat="${f.chat}" tabindex="0"` : ''}>
+      <span class="ficon" style="color:${col};background:color-mix(in srgb, ${col} 14%, transparent)">${ic}</span>
+      <div style="min-width:0"><div class="small">${esc(f.text)}</div><div class="tiny dim">${f.t}${p ? ` · <span style="color:${p.hue}">${esc(p.name)}</span>` : ''}</div></div>
+    </li>`;
+  }).join('') || '<li class="small dim">Nothing yet today.</li>';
+}
+function nowHTML() {
+  const list = CHATS.filter(inScope);
+  const waiting = list.filter((c) => c.state === 'waiting'), working = list.filter((c) => c.state === 'working');
+  const row = (c) => { const p = P(c.project); return `<button type="button" class="nowrow" data-chat="${c.id}"><span class="dot ${c.state === 'working' ? 'pulse' : ''}" style="background:${c.state === 'waiting' ? 'var(--wait)' : p.hue}"></span>
+    <span style="min-width:0"><span class="small" style="font-weight:500;display:block">${esc(c.name)}</span><span class="tiny ${c.state === 'waiting' ? '' : 'muted'}" style="${c.state === 'waiting' ? 'color:var(--wait)' : ''}">${c.state === 'waiting' ? esc(c.asked) : esc(c.doing)}</span>
+    <span class="tiny dim" style="display:block">${esc(c.project)}${SPLITS[c.id] ? (() => { const n = SPLITS[c.id].filter((k) => k.status === 'running').length; return n ? ` · ${n} split${n === 1 ? '' : 's'} running` : ''; })() : ''}</span></span></button>`; };
+  return `${waiting.length ? `<div class="label" style="color:var(--wait);margin-bottom:6px">Waiting for you · ${waiting.length}</div>${waiting.map(row).join('')}` : ''}
+    <div class="label" style="margin:12px 0 6px">Working · ${working.length}</div>${working.map(row).join('') || '<p class="small dim">No chat is working.</p>'}`;
 }
 
 // ---- State ----
@@ -799,8 +897,8 @@ function renderChat() {
   ${projectContext(c)}
   ${SPLITS[c.id] ? `<section class="glass bigtopo-wrap" style="margin-bottom:16px">
     <div class="lt-head"><span class="livedot"></span><b>How this chat split its work</b><span class="tiny muted" id="bigsum">${topoSummary(c.id)}</span>
-      <span class="legend"><i style="--c:#c4b5fd"></i>Opus<i style="--c:#93c5fd"></i>Sonnet<i style="--c:#5eead4"></i>Haiku<i class="back"></i>merged</span></div>
-    <div id="bigtopo" data-chat="${c.id}">${topologySVG(c.id, true)}</div>
+      <span class="legend"><i style="--c:#c4b5fd"></i>Opus<i style="--c:#93c5fd"></i>Sonnet<i style="--c:#5eead4"></i>Haiku<i class="back"></i>merged</span>${modeToggle()}</div>
+    <div id="bigtopo" data-chat="${c.id}">${bigSplitHTML(c.id)}</div>
   </section>` : ''}
   <div class="grid3">
     <section class="glass box"><div class="label">Timeline</div><ul class="tl">
@@ -845,9 +943,16 @@ function renderProjectPage() {
 }
 
 function renderSoul() {
-  return `<div class="head"><h1>${scope ? 'Soul of ' + esc(scope) : 'Main soul'}</h1><span class="s">${scope ? 'answers only for ' + esc(scope) : 'answers across every project'}</span></div>
-  <div class="soulwrap"><canvas id="soul" width="800" height="800" aria-label="The soul"></canvas></div>
-  <div class="glass askbox"><label for="ask" class="label">Ask</label><input id="ask" placeholder="${scope ? 'Ask the soul of ' + esc(scope) + '…' : 'Ask the main soul about any project…'}"><div class="tiny" style="color:var(--gold);margin-top:6px;opacity:0.8">Answers here are offline and free. For full answers, type /soul &lt;question&gt; in a Claude Code chat: it runs on your subscription.</div></div>`;
+  return `<div class="head"><h1>${scope ? 'Soul of ' + esc(scope) : 'Main soul'}</h1><span class="s">${scope ? 'what is happening in ' + esc(scope) + ', live' : 'what is happening across every project, live'}</span></div>
+  <div class="soulgrid">
+    <section class="glass nowpanel"><div class="label">Happening now</div><div id="soulnow" style="margin-top:8px">${nowHTML()}</div></section>
+    <div>
+      <div class="soulwrap"><canvas id="soul" width="800" height="800" aria-label="The soul"></canvas></div>
+      <div class="soulmurmur" id="soulmurmur">${esc(FEED[0]?.text ?? '')}</div>
+      <div class="glass askbox" style="margin-top:14px"><label for="ask" class="label">Ask</label><input id="ask" placeholder="${scope ? 'Ask the soul of ' + esc(scope) + '…' : 'Ask the main soul about any project…'}"><div class="tiny" style="color:var(--wait);margin-top:6px;opacity:0.85">Answers here are offline and free. For full answers, type /soul &lt;question&gt; in a Claude Code chat: it runs on your subscription.</div></div>
+    </div>
+    <section class="glass feedpanel"><div class="label" style="display:flex;gap:8px;align-items:center"><span class="livedot"></span>Latest</div><ol class="feed" id="soulfeed">${feedHTML()}</ol></section>
+  </div>`;
 }
 
 function render() {
@@ -885,6 +990,7 @@ document.getElementById('main').addEventListener('click', (e) => {
   const ic = e.target.closest('[data-invcat]'); if (ic) { invCat = ic.dataset.invcat; render(); return; }
   const ig = e.target.closest('[data-invgroup]'); if (ig) { invGroup = ig.dataset.invgroup; render(); return; }
   const ts = e.target.closest('[data-tasksrc]'); if (ts) { taskSrc = ts.dataset.tasksrc; render(); return; }
+  const tp = e.target.closest('[data-topomode]'); if (tp) { topoMode = tp.dataset.topomode; render(); return; }
   const tm = e.target.closest('[data-taskmode]'); if (tm) { taskMode = tm.dataset.taskmode; render(); return; }
   const cp = e.target.closest('[data-copy]');
   if (cp) { const t = 'Use the delegate tool (model haiku) to write the docs for this change, then check the result.'; navigator.clipboard?.writeText(t).catch(() => {}); cp.textContent = 'Copied'; }
