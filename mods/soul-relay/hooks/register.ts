@@ -640,6 +640,21 @@ export const register: Register = (on, options) => {
     })).catch(() => ({ deny: 'soul-relay: the Soul Engine hub did not answer.' }))
   }
 
+  // Auto-split, enforced: Explore and general-purpose agents run on the chat's own model unless told otherwise, so
+  // they save nothing. With auto-split on, an expensive chat's Explore goes to Haiku and general-purpose to Sonnet,
+  // unless the chat named a model. Other agent types keep their own model.
+  for (const tool of ['Agent', 'Task']) {
+    on('tool.call', { tool }, async ($, e, next) => {
+      const input = e as unknown as { subagent_type?: string; model?: string; description?: string }
+      if (!S.autoSplit || input.model) return next(e)
+      const type = input.subagent_type ?? 'general-purpose'
+      const model = type === 'Explore' ? 'haiku' : type === 'general-purpose' ? 'sonnet' : null
+      if (!model || !/opus|fable/i.test(await $.session.model())) return next(e)
+      $.ui.toast(`Auto-split: “${(input.description ?? type).slice(0, 40)}” runs on ${model === 'haiku' ? 'Haiku' : 'Sonnet'}`)
+      return next({ ...e, model } as typeof e)
+    }).catch(($, e, next) => next(e))
+  }
+
   // Plans: when the chat writes one, suggest where each step could run. Nothing is sent.
   for (const tool of ['ExitPlanMode', 'TodoWrite']) {
     on('tool.call', { tool }, async ($, e, next) => {
