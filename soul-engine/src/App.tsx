@@ -1,310 +1,223 @@
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+// Soul Engine v4: Today is the soul as a full page with only a HUD; Chats, Tasks, Projects and Inventory share a
+// sidebar and a breadcrumb; a chat or task opens in a side panel; Ctrl+K jumps anywhere.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SoulCore from './components/SoulCore';
-import DataOrbits from './components/DataOrbits';
-import Terminal from './components/Terminal';
-import ProjectsDashboard from './components/ProjectsDashboard';
-import { ActivityPanel, ProjectSessionsPanel, ProjectSidePanel } from './components/ProjectPanels';
-import InventoryPanel from './components/InventoryPanel';
-import RelayView from './components/RelayView';
-import StatusView from './components/StatusView';
-import NavBar, { View } from './components/NavBar';
 import LockScreen from './components/LockScreen';
-import { LockPrefs, readLocked, readPrefs, writeLocked, writePrefs } from './lock';
-import { SoulMood, Message, OrbitNode, ChatTurn } from './types';
-import { querySoulEngine, useFlow, useInventory, useNewBuild, useProjectDetail, useSnapshot, useStatus } from './services/soulService';
-import { buildProjects, hueOf, MAIN_HUE, seedOf } from './projects';
+import { SoulMood } from './types';
+import { querySoulEngine, sendToChat, useChats, useFeed, useFlow, useInventory, useNewBuild, useSnapshot, useStatus, useTasks } from './services/soulService';
+import { hueOf, MAIN_HUE, seedOf } from './projects';
 import { fmtCost, fmtTokens } from './format';
+import { LockPrefs, readLocked, readPrefs, writeLocked, writePrefs } from './lock';
+import { ChatsView, InventoryView, ProjectsView, TasksView, TodayHUD, VIEWS, type AppCtx, type View } from './v4/views';
+import { ChatPanel, DocModal, Palette, SendDialog, TaskPanel } from './v4/panels';
+import { Avatar, chatName, Icon } from './v4/ui';
+import { LockMenu } from './v4/lockmenu';
+import './v4/v4.css';
 
-/** Routes: "#/" main soul, "#/status", "#/relay"; inside a project "#/p/<project>", "#/p/<project>/status", "#/p/<project>/relay". */
+// Routes: "#/" Today, "#/chats", "#/tasks", "#/projects", "#/inventory"; inside a project "#/p/<project>/<view>".
 function parseHash(): { scope: string | null; view: View } {
-  const h = window.location.hash;
-  const p = /^#\/p\/([^/]+)(?:\/(status|relay))?\/?$/.exec(h);
-  if (p) return { scope: decodeURIComponent(p[1]), view: (p[2] as View) ?? 'soul' };
-  const v = /^#\/(status|relay)(?:\/(.+))?$/.exec(h); // "#/relay/<project>" is the older form
-  if (v) return { scope: v[2] ? decodeURIComponent(v[2]) : null, view: v[1] as View };
-  return { scope: null, view: 'soul' };
+  const h = window.location.hash.replace(/^#\/?/, '');
+  const legacy: Record<string, View> = { status: 'projects', relay: 'chats', soul: 'today', '': 'today' };
+  const asView = (v: string | undefined): View => (VIEWS.some(([id]) => id === v) ? (v as View) : legacy[v ?? ''] ?? 'today');
+  const p = /^p\/([^/]+)(?:\/([a-z]+))?\/?$/.exec(h);
+  if (p) return { scope: decodeURIComponent(p[1]), view: p[2] ? asView(p[2]) : 'projects' };
+  const r = /^(status|relay)\/(.+)$/.exec(h);
+  if (r) return { scope: decodeURIComponent(r[2]), view: asView(r[1]) };
+  return { scope: null, view: asView(h.split('/')[0]) };
 }
-const readScope = () => parseHash().scope;
-const readRelay = () => parseHash().view === 'relay';
-const readStatus = () => parseHash().view === 'status';
-export function hashFor(scope: string | null, view: View): string {
-  if (scope) return `#/p/${encodeURIComponent(scope)}${view === 'soul' ? '' : `/${view}`}`;
-  return view === 'soul' ? '#/' : `#/${view}`;
-}
+const hashFor = (scope: string | null, view: View) => (scope ? `#/p/${encodeURIComponent(scope)}/${view}` : view === 'today' ? '#/' : `#/${view}`);
 
-type InvView = { mode: 'inventory' | 'changes'; register: boolean } | null;
+type Drawer = { type: 'chat' | 'task'; id: string; list?: string[] } | null;
+type Send = { chatId: string; title: string; text: string } | null;
 
 const App: React.FC = () => {
   const { snapshot, link } = useSnapshot();
   const inventory = useInventory();
-  const [scope, setScope] = useState<string | null>(readScope);
-  const [relay, setRelay] = useState(readRelay);
-  const [statusView, setStatusView] = useState(readStatus);
-  const [focusId, setFocusId] = useState<string | null>(null);
-  // One conversation per soul: '' is the main soul.
-  const [threads, setThreads] = useState<Record<string, Message[]>>({});
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [afterglow, setAfterglow] = useState(false);
-  const [invView, setInvView] = useState<InvView>(null);
-  const [coreSpend, setCoreSpend] = useState(0);
-  const [askMode, setAskMode] = useState<'api' | 'subscription'>('subscription');
-  useEffect(() => {
-    fetch('/api/config').then(r => r.json()).then((c: { ask?: 'api' | 'subscription' }) => setAskMode(c.ask === 'api' ? 'api' : 'subscription')).catch(() => {});
-  }, []);
-  const glowTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const chats = useChats() ?? [];
+  const feed = useFeed() ?? [];
+  const tasks = useTasks() ?? [];
+  const { status } = useStatus(60000);
+  const flow = useFlow(20000);
+  const newBuild = useNewBuild();
 
-  // Away mode: lock by hand (button or Ctrl+Shift+L) or after idle minutes; it survives a reload.
+  const [{ scope, view }, setRoute] = useState(parseHash);
+  const [drawer, setDrawer] = useState<Drawer>(null);
+  const [palette, setPalette] = useState(false);
+  const [send, setSend] = useState<Send>(null);
+  const [doc, setDoc] = useState<{ title: string; markdown: string } | null>(null);
+  const [toast, setToast] = useState('');
+  const [topoMode, setTopoMode] = useState<'diagram' | 'board'>('diagram');
+  const [answer, setAnswer] = useState({ answer: '', meta: '', busy: false });
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    const on = () => { setRoute(parseHash()); setDrawer(null); };
+    window.addEventListener('hashchange', on);
+    return () => window.removeEventListener('hashchange', on);
+  }, []);
+  const navigate = useCallback((s: string | null, v: View) => { const h = hashFor(s, v); if (window.location.hash !== h) window.location.hash = h; else setRoute({ scope: s, view: v }); setDrawer(null); window.scrollTo(0, 0); }, []);
+  const go = useCallback((v: View) => navigate(scope, v), [navigate, scope]);
+  const setScope = useCallback((s: string | null) => navigate(s, view), [navigate, view]);
+  const flash = (t: string) => { setToast(t); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 4200); };
+
+  // ---- Away mode ----
   const [locked, setLocked] = useState(readLocked);
   const [lockPrefs, setLockPrefs] = useState<LockPrefs>(readPrefs);
-  const lock = useCallback(() => { writeLocked(true); setLocked(true); }, []);
+  const lock = useCallback(() => { writeLocked(true); setLocked(true); setPalette(false); }, []);
   const unlock = useCallback(() => { writeLocked(false); setLocked(false); }, []);
   const savePrefs = useCallback((p: LockPrefs) => { writePrefs(p); setLockPrefs(p); }, []);
-  // A newer build: reload by itself while locked or out of sight, otherwise offer it in the bar.
-  const newBuild = useNewBuild();
-  useEffect(() => {
-    if (!newBuild) return;
-    const go = () => { if (readLocked() || document.hidden) location.reload(); };
-    go();
-    document.addEventListener('visibilitychange', go);
-    return () => document.removeEventListener('visibilitychange', go);
-  }, [newBuild]);
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l') { e.preventDefault(); lock(); } };
-    window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
-  }, [lock]);
   useEffect(() => {
     if (locked || !lockPrefs.autoMin) return;
     let t: ReturnType<typeof setTimeout>;
     const arm = () => { clearTimeout(t); t = setTimeout(lock, lockPrefs.autoMin * 60_000); };
-    const events = ['pointermove', 'pointerdown', 'keydown', 'wheel'];
-    events.forEach(ev => window.addEventListener(ev, arm, { passive: true }));
+    const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel'];
+    evs.forEach((e) => window.addEventListener(e, arm, { passive: true }));
     arm();
-    return () => { clearTimeout(t); events.forEach(ev => window.removeEventListener(ev, arm)); };
+    return () => { clearTimeout(t); evs.forEach((e) => window.removeEventListener(e, arm)); };
   }, [locked, lockPrefs.autoMin, lock]);
-
   useEffect(() => {
-    const onHash = () => { setScope(readScope()); setRelay(readRelay()); setStatusView(readStatus()); setInvView(null); };
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, []);
-  const navigate = useCallback((name: string | null, v: View) => { window.location.hash = hashFor(name, v); }, []);
-  const openSoul = useCallback((name: string | null) => navigate(name, 'soul'), [navigate]);
-  const flow = useFlow(relay ? 4000 : 20000);
-  const { status, refresh: refreshStatus } = useStatus(statusView ? 60000 : 300000);
-  const board = relay || statusView;
+    if (!newBuild) return;
+    const reload = () => { if (readLocked() || document.hidden) location.reload(); };
+    reload();
+    document.addEventListener('visibilitychange', reload);
+    return () => document.removeEventListener('visibilitychange', reload);
+  }, [newBuild]);
 
-  const key = scope ?? '';
-  const messages = threads[key] ?? [];
-  const dash = useMemo(() => buildProjects(snapshot, inventory), [snapshot, inventory]);
-  const current = scope ? dash.find(p => p.name === scope) ?? null : null;
-  const hue = scope ? hueOf(scope) : MAIN_HUE;
-  const seed = scope ? seedOf(scope) : 0;
-
-  const snapProjects = snapshot?.projects ?? [];
-  const totals = snapshot?.totals;
-  const detailId = scope ? current?.activity[0]?.id ?? null : null;
-  const detail = useProjectDetail(detailId);
-
-  // The soul reads the room: magenta while it analyzes, gold while it speaks, white just after,
-  // its own hue while any of its sessions is live, calm when all is quiet.
-  const live = scope ? current?.liveSessions ?? 0 : totals?.liveSessions ?? 0;
-  const mood = isStreaming ? SoulMood.PROCESSING : isProcessing ? SoulMood.ANALYZING : afterglow ? SoulMood.HARMONIC : live > 0 ? SoulMood.CONNECTED : SoulMood.IDLE;
-  // Burn is tracked across all projects only; a project soul glows with its live sessions instead.
-  const burn = scope ? live * 60_000 : totals?.burnPerMin ?? 0;
-  const intensity = isProcessing ? 0.8 : Math.round((0.2 + Math.min(0.5, burn / 400_000)) * 20) / 20;
-
-  // Main soul: its projects orbit it, most recent first. A project soul: its repos.
-  const nodes: OrbitNode[] = useMemo(() => {
-    const ring = <T,>(items: T[], f: (x: T, i: number) => Omit<OrbitNode, 'angle' | 'radius' | 'speed'>) =>
-      items.slice(0, 8).map((x, i) => ({ ...f(x, i), angle: (i * 360) / Math.min(8, items.length) + i * 17, radius: 1.2 + (i % 4) * 0.3, speed: 0.2 - (i % 4) * 0.04 }));
-    if (current) {
-      return ring(current.repos, r => {
-        const act = current.activity.find(a => [r.path, ...(r.alsoAt ?? [])].some(p => p.toLowerCase() === a.path.toLowerCase()));
-        return { id: r.id, type: act?.status === 'active' ? 'sensor' : act ? 'data' : 'interface', label: r.name, value: act ? fmtTokens(act.tokensToday) : `${r.facts.length} facts` };
-      });
-    }
-    if (scope) return [];
-    const ranked = dash.filter(p => p.kind !== 'activity' || p.lastActivity).sort((a, b) => b.lastActivity - a.lastActivity);
-    return ring(ranked, p => ({ id: p.name, type: p.status === 'active' ? 'sensor' : p.status === 'recent' ? 'data' : 'interface', label: p.name, value: fmtTokens(p.tokensToday) }));
-  }, [dash, current, scope]);
-
-  const handleSendMessage = useCallback(
-    async (text: string) => {
-      const thread = key;
-      const askScope = scope;
-      const setMessages = (f: (prev: Message[]) => Message[]) => setThreads(t => ({ ...t, [thread]: f(t[thread] ?? []) }));
-      // "/find <text>" searches the inventory locally: no Claude call, nothing leaves the machine.
-      const find = /^\/find\s+(.+)/i.exec(text.trim());
-      if (find) {
-        setMessages(prev => [...prev, { role: 'user', content: text, timestamp: Date.now() }]);
-        let reply = '';
-        try {
-          const res = await fetch(`/api/inventory?q=${encodeURIComponent(find[1])}${askScope ? `&project=${encodeURIComponent(askScope)}` : ''}`);
-          const data = (await res.json()) as { hits: { project: string; fact: { label: string; value: string; evidence: string[] } }[] };
-          reply = data.hits.length
-            ? data.hits.slice(0, 40).map(h => `• ${h.project} · ${h.fact.label}: ${h.fact.value}${h.fact.evidence[0] ? `  (${h.fact.evidence[0]})` : ''}`).join('\n') + (data.hits.length > 40 ? `\n…and ${data.hits.length - 40} more. Open INVENTORY to see all.` : '')
-            : `No inventory fact${askScope ? ` in ${askScope}` : ''} matches "${find[1]}".`;
-        } catch {
-          reply = 'Resonance lost. The hub is unreachable.';
-        }
-        setMessages(prev => [...prev, { role: 'system', content: reply, timestamp: Date.now(), meta: `↳ inventory search · local${askScope ? ` · ${askScope} only` : ''}` }]);
-        return;
-      }
-      const history: ChatTurn[] = (threads[thread] ?? []).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
-      setMessages(prev => [...prev, { role: 'user', content: text, timestamp: Date.now() }]);
-      setIsProcessing(true);
-      setAfterglow(false);
-      clearTimeout(glowTimer.current);
-
-      let started = false;
-      const append = (chunk: string, meta?: string) =>
-        setMessages(prev => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          if (started && last?.role === 'system') {
-            next[next.length - 1] = { ...last, content: last.content + chunk, meta: meta ?? last.meta };
-          } else {
-            started = true;
-            next.push({ role: 'system', content: chunk, timestamp: Date.now(), meta });
-          }
-          return next;
-        });
-
-      let meta = '';
-      const steps: string[] = [];
-      const setSteps = () => setMessages(prev => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (started && last?.role === 'system') next[next.length - 1] = { ...last, tools: [...steps], meta };
-        else { started = true; next.push({ role: 'system', content: '', timestamp: Date.now(), meta, tools: [...steps] }); }
-        return next;
-      });
-      try {
-        await querySoulEngine({ question: text, focusId: askScope ? null : focusId, history, scope: askScope }, e => {
-          if (e.type === 'tool') {
-            steps.push(e.label);
-            setSteps();
-          } else if (e.type === 'done' && e.usage) {
-            const u = e.usage;
-            const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-            meta = `${meta} · ${u.calls ?? 1} call${(u.calls ?? 1) === 1 ? '' : 's'} · ${k(u.input)} in / ${k(u.output)} out${u.cost != null ? ` · ~$${u.cost.toFixed(3)}` : ''}`;
-            if (u.cost) setCoreSpend(s => s + (u.cost ?? 0));
-            setSteps();
-          } else if (e.type === 'meta') {
-            const about = askScope ? `soul of ${askScope}` : e.projects.length ? `echoes from ${e.projects.join(', ')}` : 'echoes from all projects';
-            meta = `↳ ${about} · ${e.offline ? 'offline' : e.model}`;
-          } else if (e.type === 'delta') {
-            setIsStreaming(true);
-            append(e.text, meta);
-          } else if (e.type === 'error') {
-            append(`${started ? '\n' : ''}Entropy detected in the signal. ${e.message}`, meta);
-          }
-        });
-      } catch {
-        append('Resonance lost. The hub is unreachable. Is `npm run dev` running?');
-      }
-
-      setIsProcessing(false);
-      setIsStreaming(false);
-      setAfterglow(true);
-      glowTimer.current = setTimeout(() => setAfterglow(false), 5000);
+  const statusMap = useMemo(() => new Map((status ?? []).map((s) => [s.name, s])), [status]);
+  const ctx: AppCtx = {
+    chats, feed, tasks, status: status ?? [], inventory, snapshot, scope, setScope, go,
+    statusOf: (n) => statusMap.get(n),
+    openChat: (id, list) => { const c = chats.find((x) => x.id === id); if (c && scope && c.project !== scope) navigate(c.project, view); setDrawer({ type: 'chat', id, list }); },
+    openTask: (id) => setDrawer({ type: 'task', id }),
+    askRoadmap: (chatId) => {
+      const c = chats.find((x) => x.id === chatId); if (!c) return;
+      setSend({ chatId, title: `Ask “${chatName(c)}” to write the ${c.project} roadmap`, text: `/soul-roadmap\n\nPlease draft docs/ROADMAP.md for ${c.project} in the REKA format, from its plans, build plans and readiness notes. Show me the draft before writing the file, then commit it.` });
     },
-    [threads, key, scope, focusId],
-  );
+  };
 
-  const linkLabel = link === 'online' ? (snapshot?.source === 'demo' ? 'DEMO FEED' : 'LIVE FEED') : link === 'linking' ? 'LINKING…' : 'SIGNAL LOST';
-  const m = scope
-    ? { tokens: current ? fmtTokens(current.tokensToday) : '—', cost: fmtCost(current?.costToday), live: current ? `${current.liveSessions}/${current.sessionCount}` : '—', flux: '—' }
-    : { tokens: totals ? fmtTokens(totals.tokensToday) : '—', cost: fmtCost(totals?.costToday), live: totals ? `${totals.liveSessions}/${totals.sessions}` : '—', flux: totals ? fmtTokens(totals.burnPerMin) : '—' };
+  // ---- Keyboard ----
+  const drawerList = drawer?.type === 'chat' ? (drawer.list ?? chats.filter((c) => !scope || c.project === scope).map((c) => c.id)) : [];
+  const drawerIdx = drawer?.type === 'chat' ? drawerList.indexOf(drawer.id) : -1;
+  const step = (d: number) => { if (drawer?.type !== 'chat') return; const id = drawerList[drawerIdx + d]; if (id) setDrawer({ ...drawer, id }); };
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (locked) return;
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l') { e.preventDefault(); lock(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette(true); return; }
+      const typing = (e.target as HTMLElement)?.closest('input, textarea');
+      if (e.key === 'Escape' && drawer && !send && !palette) setDrawer(null);
+      if (!typing && drawer?.type === 'chat' && !send && !palette) { if (e.key === 'ArrowLeft') step(-1); if (e.key === 'ArrowRight') step(1); }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  });
+
+  // ---- Ask the soul (offline unless SOUL_ASK_API=on) ----
+  const onAsk = async (q: string) => {
+    setAnswer({ answer: '', meta: '', busy: true });
+    let text = '', meta = '';
+    try {
+      await querySoulEngine({ question: q, focusId: null, history: [], scope }, (e) => {
+        if (e.type === 'meta') meta = `${e.offline ? 'offline answer' : e.model}${e.projects.length ? ` · ${e.projects.join(', ')}` : ''}`;
+        else if (e.type === 'delta') { text += e.text; setAnswer({ answer: text, meta, busy: true }); }
+        else if (e.type === 'error') { text += `\n${e.message}`; }
+      });
+    } catch { text = 'The hub is not answering.'; }
+    setAnswer({ answer: text || 'No answer.', meta, busy: false });
+  };
+
+  const openDoc = async (kind: 'access-register' | 'rotation', arg: string) => {
+    if (!arg) return;
+    try {
+      const r = await fetch(kind === 'access-register' ? `/api/docs/access-register?project=${encodeURIComponent(arg)}` : `/api/docs/rotation?key=${encodeURIComponent(arg)}`);
+      const d = (await r.json()) as { title?: string; markdown?: string; error?: string };
+      setDoc({ title: d.title ?? arg, markdown: d.markdown ?? d.error ?? 'Nothing found.' });
+    } catch { flash('The hub is not answering.'); }
+  };
+
+  // ---- Badges: only what asks you to act ----
+  const inScope = (p: string) => !scope || scope === p;
+  const badges: Partial<Record<View, [number, string]>> = {
+    chats: [chats.filter((c) => inScope(c.project) && c.state === 'waiting').length, 'wait'],
+    tasks: [tasks.filter((t) => inScope(t.project) && t.status === 'blocked').length, 'wait'],
+    projects: [(status ?? []).filter((s) => inScope(s.name) && s.live.some((l) => !l.ok && !l.staging && l.source !== 'platform address')).length, 'red'],
+  };
+
+  // The soul reads the room: busy while it answers, its own hue while chats work, calm otherwise.
+  const working = chats.filter((c) => inScope(c.project) && c.state === 'working').length;
+  const mood = answer.busy ? SoulMood.ANALYZING : working > 0 ? SoulMood.CONNECTED : SoulMood.IDLE;
+  const hue = scope ? hueOf(scope) : MAIN_HUE;
+  const soul = <SoulCore mood={mood} intensity={answer.busy ? 0.8 : Math.min(0.7, 0.25 + working * 0.1)} hue={hue} seed={scope ? seedOf(scope) : 0} />;
+
+  const immersive = view === 'today';
+  useEffect(() => { document.body.classList.toggle('immersive', immersive); }, [immersive]);
+  const viewLabel = VIEWS.find(([id]) => id === view)?.[1] ?? '';
+  const drawerChat = drawer?.type === 'chat' ? chats.find((c) => c.id === drawer.id) : undefined;
+  const drawerTask = drawer?.type === 'task' ? tasks.find((t) => t.id === drawer.id) : undefined;
+  const t = snapshot?.totals;
+  const projectsInNav = (status ?? []).map((s) => s.name);
+  const sendChat = send ? chats.find((c) => c.id === send.chatId) : undefined;
+  const linkLabel = link === 'online' ? 'Live' : link === 'linking' ? 'Linking…' : 'Hub not answering';
+
+  const navItem = (id: View, label: string, cls: string) => { const [n, k] = badges[id] ?? [0, '']; return <button key={id} type="button" className={cls} aria-current={view === id ? 'page' : undefined} onClick={() => go(id)}>{Icon[id]}<span>{label}</span>{n > 0 && <span className={`nb ${k}`}>{n}</span>}</button>; };
 
   return (
-    <div className="relative w-screen h-screen bg-reka-dark overflow-hidden font-sans select-none">
-
-      {/* Background grid, tinted with the soul's hue */}
-      <div className="absolute inset-0 z-0 opacity-20 transition-all duration-700"
-           style={{ backgroundImage: `radial-gradient(circle at 50% 50%, ${hue} 1px, transparent 1px)`, backgroundSize: '40px 40px' }} />
-      <div className="absolute inset-0 bg-gradient-to-b from-reka-void via-transparent to-reka-void z-0 pointer-events-none" />
-
-      {/* The soul: the main REKA soul, or the project's own */}
-      {!board && <>
-        <SoulCore key={key} mood={mood} intensity={intensity} hue={hue} seed={seed} />
-        <DataOrbits nodes={nodes} hue={scope ? hue : undefined} selectedId={scope ? null : focusId}
-          onSelect={id => (scope ? setInvView({ mode: 'inventory', register: false }) : openSoul(id))} />
-      </>}
-
-      <NavBar
-        scope={scope}
-        view={statusView ? 'status' : relay ? 'relay' : 'soul'}
-        projects={dash.filter(p => p.kind !== 'activity')}
-        link={link}
-        linkLabel={linkLabel}
-        inventoryOpen={invView != null}
-        onNavigate={navigate}
-        onInventory={() => setInvView(v => (v ? null : { mode: 'inventory', register: false }))}
-        lockPrefs={lockPrefs}
-        onLockPrefs={savePrefs}
-        onLock={lock}
-        update={newBuild}
-        badges={{
-          status: status ? `${status.filter(s => (!scope || s.name === scope) && s.live.some(l => l.ok && !l.staging)).length} live` : undefined,
-          relay: flow && flow.totals.running ? `${flow.totals.running} running` : undefined,
-        }}
-        metrics={[
-          { label: 'Tokens today', value: m.tokens },
-          { label: 'Est. cost', value: m.cost },
-          { label: 'Live chats', value: m.live },
-          ...(scope ? [] : [{ label: 'Flux/min', value: m.flux, title: 'Tokens per minute, last two minutes' }, { label: 'Saved', value: snapshot ? fmtCost(snapshot.relay.savedToday) : '—', title: 'Saved by handing work to cheaper models today' }]),
-        ]}
-      />
-
-      {statusView ? (
-        <StatusView status={status} project={scope} projects={dash} flow={flow} onOpen={name => navigate(name, 'soul')} onFilter={name => navigate(name, 'status')} onRefresh={refreshStatus} />
-      ) : relay ? (
-        <RelayView flow={flow} projects={dash} project={scope} onBack={() => openSoul(scope)} />
-      ) : scope ? (
-        current ? (
-          <>
-            <ProjectSidePanel project={current} onBack={() => openSoul(null)}
-              onInventory={() => setInvView({ mode: 'inventory', register: false })}
-              onChanges={() => setInvView({ mode: 'changes', register: false })}
-              onRegister={() => setInvView({ mode: 'inventory', register: true })}
-              status={status?.find(s => s.name === current.name) ?? null} />
-            <ProjectSessionsPanel project={current} detail={detail} />
-          </>
-        ) : (
-          <div className="absolute left-6 top-20 z-40 glass-panel rounded-lg p-4 text-xs font-mono text-gray-400">
-            {inventory ? <>No project named “{scope}”. <button type="button" className="text-reka-cyan underline" onClick={() => openSoul(null)}>Back to the main soul</button></> : 'Loading the project…'}
+    <>
+      <div className="shell">
+        <aside className="side" aria-label="Navigation">
+          <div className="brand"><b>REKA</b><span>Soul Engine</span></div>
+          <button type="button" className="searchbtn" onClick={() => setPalette(true)}>{Icon.search}Search or jump to<kbd>Ctrl K</kbd></button>
+          <nav aria-label="Places">{VIEWS.map(([id, l]) => navItem(id, l, 'navitem'))}</nav>
+          <div className="side-k">Projects</div>
+          <div>
+            <button type="button" className="projitem" aria-current={!scope ? 'true' : undefined} onClick={() => setScope(null)}><span className="dot" style={{ background: 'var(--accent)' }} />All projects</button>
+            {projectsInNav.map((n) => { const cs = chats.filter((c) => c.project === n); return (
+              <button key={n} type="button" className="projitem" aria-current={scope === n ? 'true' : undefined} onClick={() => setScope(n)}>
+                <Avatar name={n} size="sm" /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n}</span>
+                {cs.some((c) => c.state === 'waiting') ? <i className="wait" title="waiting for you" /> : cs.some((c) => c.state === 'working') ? <i className="live" title="working" /> : null}
+              </button>); })}
           </div>
-        )
-      ) : (
-        <>
-          <ProjectsDashboard projects={dash} snapshot={snapshot} onOpen={openSoul} />
-          <ActivityPanel projects={dash} onOpen={openSoul} />
-        </>
-      )}
+          <div className="side-foot">
+            <div className="sidemetrics"><span>Today <b>{t ? fmtTokens(t.tokensToday) : '—'}</b> tokens</span><span><b>{fmtCost(t?.costToday)}</b></span></div>
+            <div className="sidemetrics"><span>{linkLabel}</span>{newBuild && <button type="button" className="update-btn" onClick={() => location.reload()}>Updated · Reload</button>}</div>
+            <LockMenu prefs={lockPrefs} onPrefs={savePrefs} onLock={lock} />
+          </div>
+        </aside>
+        <div className="content">
+          <header className="top">
+            <nav className="crumbs" aria-label="You are here">
+              {scope ? <button type="button" onClick={() => setScope(null)}>All projects</button> : <span className="here">All projects</span>}
+              {scope && <><span className="sep">›</span>{view === 'projects' && !drawer ? <span className="here">{scope}</span> : <button type="button" onClick={() => navigate(scope, 'projects')}>{scope}</button>}</>}
+              {!(scope && view === 'projects') && <><span className="sep">›</span>{drawer ? <button type="button" onClick={() => setDrawer(null)}>{viewLabel}</button> : <span className="here">{viewLabel}</span>}</>}
+              {drawer && <><span className="sep">›</span><span className="here">{drawerChat ? chatName(drawerChat) : drawerTask?.title ?? ''}</span></>}
+            </nav>
+            <div className="top-right"><button type="button" className="askbtn" onClick={() => go('today')}>{Icon.spark}<span>Ask the soul</span></button></div>
+          </header>
+          <main>
+            {view === 'today' && <TodayHUD ctx={ctx} soul={soul} badges={badges} ask={{ ...answer, onAsk }} onSearch={() => setPalette(true)} onLock={lock} update={newBuild} />}
+            {view === 'chats' && <ChatsView ctx={ctx} topoMode={topoMode} setTopoMode={setTopoMode} />}
+            {view === 'tasks' && <TasksView ctx={ctx} />}
+            {view === 'projects' && <ProjectsView ctx={ctx} />}
+            {view === 'inventory' && <InventoryView ctx={ctx} onDoc={openDoc} />}
+          </main>
+        </div>
+      </div>
 
-      <InventoryPanel open={invView != null} scope={scope} initialMode={invView?.mode} openRegister={invView?.register}
-        onClose={() => setInvView(null)} onAsk={q => handleSendMessage(q)} />
-
-      {/* Bottom interface: talks to the soul on screen */}
-      {!board && <Terminal
-        messages={messages}
-        onSendMessage={handleSendMessage}
-        isProcessing={isProcessing}
-        isStreaming={isStreaming}
-        projects={snapProjects}
-        focusId={focusId}
-        onFocus={setFocusId}
-        coreSpend={coreSpend}
-        scope={scope}
-        hue={hue}
-        askMode={askMode}
-      />}
-
+      <nav className="bottomnav" aria-label="Places">{VIEWS.map(([id, l]) => navItem(id, l, ''))}</nav>
+      {drawer && <div className="drawer-scrim" onClick={() => setDrawer(null)} />}
+      <aside className={`drawer ${drawer ? 'open' : ''}`} aria-hidden={!drawer} aria-label="Details">
+        {drawerChat && <ChatPanel c={drawerChat} ctx={ctx} topoMode={topoMode} setTopoMode={setTopoMode} onClose={() => setDrawer(null)}
+          onPrev={drawerIdx > 0 ? () => step(-1) : undefined} onNext={drawerIdx >= 0 && drawerIdx < drawerList.length - 1 ? () => step(1) : undefined}
+          pos={drawerIdx >= 0 ? `${drawerIdx + 1} of ${drawerList.length}` : undefined} />}
+        {drawerTask && <TaskPanel t={drawerTask} ctx={ctx} onClose={() => setDrawer(null)} />}
+      </aside>
+      {palette && <Palette ctx={ctx} onClose={() => setPalette(false)} onLock={lock} />}
+      {send && sendChat && <SendDialog chat={sendChat} title={send.title} text={send.text} onCancel={() => setSend(null)}
+        onSend={async (txt) => { const ok = await sendToChat(send.chatId, txt); setSend(null); flash(ok ? `Queued for “${chatName(sendChat)}”. It arrives in that chat through the soul-relay plugin.` : 'The hub did not take the message.'); }} />}
+      {doc && <DocModal title={doc.title} markdown={doc.markdown} onClose={() => setDoc(null)} />}
+      {toast && <div className="toast" role="status">{toast}</div>}
       {locked && <LockScreen snapshot={snapshot} flow={flow} status={status} pinHash={lockPrefs.pinHash} hello={lockPrefs.hello} onUnlock={unlock} />}
-    </div>
+    </>
   );
 };
 

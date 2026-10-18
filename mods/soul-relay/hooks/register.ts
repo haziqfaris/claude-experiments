@@ -420,6 +420,28 @@ async function becomeWorker($: Engine, wanted: string) {
   return name
 }
 
+// ---- Messages you sent from the Soul Engine dashboard into this chat (after confirming there) ----
+const OUTBOX_MS = 5_000
+let outboxTimer: Timer | null = null
+let outboxBusy = false
+
+async function collectOutbox($: Engine) {
+  if (outboxBusy || !S.hubUrl || !S.sessionId) return
+  outboxBusy = true
+  try {
+    const items = await hub<{ id: string; text: string }[]>($, `/api/outbox?${q({ session: S.sessionId })}`)
+    for (const m of Array.isArray(items) ? items : []) {
+      // Delivered to this chat as a message, so it starts a turn here, on this chat's own model.
+      const sent = await $.session.send({ to: { sessionId: S.sessionId }, text: `[Soul Engine] ${m.text}` })
+      $.ui.toast(sent.isDelivered ? 'Soul Engine: a message from the dashboard arrived' : `Soul Engine: could not deliver a dashboard message (${sent.reason ?? 'unknown reason'})`)
+    }
+  } catch {
+    // The hub is optional; try again on the next tick.
+  } finally {
+    outboxBusy = false
+  }
+}
+
 async function stopWorker($: Engine) {
   S.heartbeat?.cancel()
   S.heartbeat = null
@@ -437,6 +459,8 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     S.sessionId = await $.session.id()
+    outboxTimer?.cancel()
+    outboxTimer = $.clock.every(OUTBOX_MS, () => { void collectOutbox($) })
     S.ledger = ((await $.store.get(ledgerKey())) as Ledger | undefined) ?? S.ledger
 
     await $.tool.register({
@@ -505,6 +529,8 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
+    outboxTimer?.cancel()
+    outboxTimer = null
     if (S.workerName) await stopWorker($)
     return next(e)
   })

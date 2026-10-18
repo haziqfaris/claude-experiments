@@ -46,11 +46,16 @@ The [soul-relay mod](../mods/soul-relay/README.md) reports each hand-off to a ch
 
 **Who may use the hub.** It listens on 127.0.0.1 only, and `server/guard.ts` refuses any browser request that does not come from the dashboard itself or from the extension, and any request whose Host is not this hub (which blocks DNS rebinding). Programs on this machine, such as the soul-relay plugin, are allowed; they could read `~/.claude` directly anyway. Add another extension's ID with `SOUL_EXTENSION_IDS`.
 
-## Getting around
+## Getting around (v4)
 
-One bar at the top: the REKA logo (main soul), a project switcher (All projects, or one project), and the screens **Soul**, **Status**, **Relay** and **Inventory**. The screens keep the chosen project, so Status inside PLExyz shows only PLExyz, and the browser's Back button works. Routes: `#/`, `#/status`, `#/relay`, and inside a project `#/p/<project>`, `#/p/<project>/status`, `#/p/<project>/relay`.
+- **Today** is the soul as a full page with only a HUD: what is waiting for you and what is working on the left, the latest events on the right (splits and merges, questions, commits, roadmap changes, sites down), the newest one written under the soul, and an ask bar. A floating pill reaches the other places.
+- **Chats, Tasks, Projects, Inventory** share a sidebar (with your projects listed under it; choosing one filters every place) and a breadcrumb.
+- **Chats** are grouped by project, each project in its own colour (section, card accent, avatar), or by status (waiting for you, working, recent). Project chips and a search box narrow them. Each chat shows its name from Claude Code, its progress through its plan, and its next step or the question it is asking. Live splits show, as a diagram or a board, which chats handed work to other models and what merged back.
+- **A chat or a task opens in a side panel**: plan, project context, splits, last reply. ← and → (or the arrows in the panel) move to the previous or next chat; Esc closes it.
+- **Ctrl+K** jumps to any project, chat or task, or runs an action.
+- **Ask a chat to write its roadmap**: from a project or a chat with no roadmap, the Soul Engine shows the exact message and sends it only when you confirm. It goes into an outbox on the hub; the soul-relay plugin in that chat collects it within a few seconds and delivers it there, where it runs on your subscription.
 
-On Status, click a project's row to expand it: its repos (stage, branch, uncommitted and unpushed work, commits, last commit, tag, tasks), its chats (model, live or last active, context, tokens and cost, hand-offs), the readiness evidence (verdict, every address with status, page and response time, stage evidence) and the roadmap's current horizon with its recent commits. **Group by** switches the same stats to one row per repo or one row per chat.
+Data: `GET /api/chats` (chats with their project, state, plan and splits), `/api/feed` (the last day's events), `/api/tasks` (roadmap items, chat plan steps and suggestions, each with a suggested model and chat), `/api/outbox` (POST `{ session, text }`; the plugin collects with `?session=`).
 
 ## Personal and community editions
 

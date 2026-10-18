@@ -156,6 +156,7 @@ function fakeHub(on: On, asked: string[]) {
     let body: unknown = { ok: true }
     if (url.includes('/api/soul/scope')) body = { project: { name: 'Payments', repos: ['payments-api', 'payments-web'] } }
     else if (url.includes('/api/soul/inventory')) body = { text: 'Payments / payments-api · Resend (e-mail API): RESEND_API_KEY (src/mail.ts:4)' }
+    else if (url.includes('/api/outbox')) body = asked.filter((a) => a.includes('/api/outbox')).length === 1 ? [{ id: 'm1', text: '/soul-roadmap please draft the roadmap' }] : []
     else if (url.includes('/api/soul/routes')) {
       const steps = (JSON.parse(String(e.init?.body)) as { steps: string[] }).steps
       body = {
@@ -221,5 +222,31 @@ describe('the soul', () => {
     expect(String((shown as { text?: string }).text)).toContain('Suggested routes (Payments)')
     expect(statuses.some(s => s?.includes('1/2 steps fit cheaper models'))).toBe(true)
     expect(asked.some(a => a.includes('/api/delegations'))).toBe(false)
+  })
+
+  test('a message sent from the dashboard reaches this chat once', async ($, on) => {
+    const asked: string[] = []
+    const sends: { to: unknown; text: string }[] = []
+    mock.store(on)
+    const clock = mock.clock(on)
+    engineBottom(on)
+    fakeHub(on, asked)
+    on('session.model', () => ({ value: 'claude-opus-5-5' }))
+    on('session.id', () => ({ value: 'boss-session' }))
+    on('session.cwd', () => ({ value: '/work/payments-api' }))
+    on('session.start', () => ({ cwd: '/work/payments-api' }))
+    on('session.send', ($, e) => {
+      sends.push({ to: e.to, text: e.text })
+      return { isDelivered: true }
+    })
+
+    await $.session.start({ source: 'startup', cwd: '/work/payments-api', surface: null } as never)
+    await clock.advance(5_000)
+    await clock.advance(5_000)
+
+    expect(asked.filter(a => a.startsWith('GET /api/outbox?session=boss-session')).length).toBe(2)
+    expect(sends).toHaveLength(1)
+    expect(sends[0]!.to).toBe('boss-session')
+    expect(sends[0]!.text).toBe('[Soul Engine] /soul-roadmap please draft the roadmap')
   })
 })

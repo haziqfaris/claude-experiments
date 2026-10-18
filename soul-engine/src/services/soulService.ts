@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AskEvent, AskRequest, FlowGraph, Inventory, ProjectDetail, ProjectStatus, Snapshot } from '../types';
+import type { AskEvent, AskRequest, ChatItem, FeedItem, FlowGraph, TaskItem, Inventory, ProjectDetail, ProjectStatus, Snapshot } from '../types';
 
 export type LinkState = 'linking' | 'online' | 'lost';
 
@@ -158,4 +158,36 @@ export function useNewBuild(every = 15000): boolean {
     return () => { cancelled = true; clearInterval(t); };
   }, [every]);
   return fresh;
+}
+
+/** Polls a hub endpoint and keeps the last good answer (the hub may restart while you work). */
+export function usePoll<T>(url: string, every: number): T | null {
+  const [data, setData] = useState<T | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (res.ok && !cancelled) setData((await res.json()) as T);
+      } catch { /* hub restarting */ }
+    };
+    load();
+    const t = setInterval(load, every);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [url, every]);
+  return data;
+}
+
+export const useChats = (every = 3000) => usePoll<ChatItem[]>('/api/chats', every);
+export const useFeed = (every = 5000) => usePoll<FeedItem[]>('/api/feed', every);
+export const useTasks = (every = 15000) => usePoll<TaskItem[]>('/api/tasks', every);
+
+/** Sends a message into one chat through the outbox; the soul-relay plugin in that chat delivers it. */
+export async function sendToChat(session: string, text: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/outbox', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ session, text }) });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

@@ -9,9 +9,12 @@ const WAITING_DAYS = 7;
 /** A reply that ends by asking you something (its last line or two carry a question). */
 function questionIn(reply: string | null): string | null {
   if (!reply) return null;
-  const tail = reply.trim().split(/(?<=[.!?])\s+/).slice(-3).join(' ');
-  const q = tail.split(/(?<=[.!?])\s+/).reverse().find((x) => x.trim().endsWith('?'));
-  return q ? q.trim().slice(0, 240) : null;
+  // Replies can end in a Markdown table or list: take the last cell or sentence that asks something, without the markup.
+  const cells = reply.split(/\s*\|\s*/).map((x) => x.replace(/[*`#>_]+/g, '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const last = [...cells].reverse().find((x) => x.includes('?'));
+  if (!last) return null;
+  const sentence = last.split(/(?<=[.!?])\s+/).reverse().find((x) => x.endsWith('?')) ?? last;
+  return sentence.replace(/^[-\w\s]{1,12}:\s+/, (m) => (/^[A-Z]-?\d+:\s/.test(m) ? '' : m)).slice(0, 240);
 }
 
 export function toChatItems(chats: FlowChat[], projectOf: (cwd: string) => string | null, now = Date.now()): ChatItem[] {
