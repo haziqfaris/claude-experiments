@@ -539,3 +539,37 @@ export interface Crossings {
   alerts: CrossingAlert[];
   fetch: 'on' | 'off';
 }
+
+// ---- Savings: how much work runs on cheaper models, and what it saves ----
+export interface MixBucket { tokens: number; output: number; cost: number }
+
+export interface ModelMix {
+  /** Oldest first, one per local day. */
+  days: {
+    date: number;
+    /** By model family: opus, sonnet, haiku, fable, other. */
+    models: Record<string, MixBucket>;
+    /** The chats' own turns, and the work their sub-agents and workers did. */
+    main: MixBucket;
+    split: MixBucket;
+    /** The same calls priced at Opus: what the day would cost with nothing handed off. */
+    allOpus: number;
+    handoffs: number;
+  }[];
+  chats: { id: string; name: string | null; cwd: string | null; main: MixBucket; split: MixBucket; allOpus: number; handoffs: number; lastTs: number }[];
+}
+
+export interface Savings extends ModelMix {
+  /** Text-only hand-offs (the delegate tool), as the soul-relay plugin reports them. */
+  delegates: { date: number; count: number; tokens: number; cost: number; saved: number }[];
+  autoSplit: AutoSplit;
+}
+
+/** Auto-split: chats hand mechanical work to cheaper workers on their own. On for every chat, or per chat. */
+export interface AutoSplit {
+  all: boolean;
+  /** Per chat: true on, false off (overrides `all`). */
+  chats: Record<string, boolean>;
+  /** When it was first turned on, to compare before and after. */
+  since: number | null;
+}

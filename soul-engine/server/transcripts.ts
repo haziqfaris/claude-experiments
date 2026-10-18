@@ -7,6 +7,7 @@ import type {
   ActivityStatus,
   FlowAgent,
   FlowChat,
+  ModelMix,
   ProjectSnapshot,
   SessionDetail,
   SessionSummary,
@@ -376,6 +377,11 @@ function startOfDay(now: number) {
 
 const tokensOf = (c: Call) => c.input + c.output + c.cacheRead + c.cacheWrite;
 
+/** The rate "all on Opus" is measured against. */
+const OPUS = 'claude-opus-5-5';
+const blank = () => ({ tokens: 0, output: 0, cost: 0 });
+const familyOf = (m: string) => (/haiku/i.test(m) ? 'haiku' : /sonnet/i.test(m) ? 'sonnet' : /fable/i.test(m) ? 'fable' : /opus/i.test(m) ? 'opus' : 'other');
+
 function sumCost(calls: Call[]): number | null {
   let total = 0;
   let known = false;
@@ -653,6 +659,44 @@ export class TranscriptIndex {
       });
     }
     return chats.sort((a, b) => b.lastActivity - a.lastActivity).slice(0, limit);
+  }
+
+  /** Savings: tokens and cost per day and model, the chat's own work apart from what it handed to sub-agents,
+   *  and what the same calls would have cost on Opus. Per chat too, for the last `days`. */
+  modelMix(days = 14, now = Date.now()): ModelMix {
+    const first = startOfDay(now) - (days - 1) * 86_400_000;
+    const dayKey = (ts: number) => Math.floor((startOfDay(ts) - first) / 86_400_000);
+    const out: ModelMix = {
+      days: Array.from({ length: days }, (_, i) => ({ date: first + i * 86_400_000, models: {}, main: blank(), split: blank(), allOpus: 0, handoffs: 0 })),
+      chats: [],
+    };
+    const chats = new Map<string, ModelMix['chats'][number]>();
+    const names = new Map<string, string>();
+    for (const acc of this.accs.values()) if (acc.sessionId && !acc.isSidechain && !acc.agentId && acc.customTitle) names.set(acc.sessionId, acc.customTitle);
+    for (const acc of this.accs.values()) {
+      if (!acc.sessionId || acc.lastTs < first) continue;
+      const split = acc.isSidechain || !!acc.agentId;
+      const ch = chats.get(acc.sessionId) ?? { id: acc.sessionId, name: names.get(acc.sessionId) ?? null, cwd: acc.cwd, main: blank(), split: blank(), allOpus: 0, handoffs: 0, lastTs: 0 };
+      ch.lastTs = Math.max(ch.lastTs, acc.lastTs);
+      if (!ch.cwd && acc.cwd) ch.cwd = acc.cwd;
+      for (const l of acc.launches.values()) if (l.ts >= first) { ch.handoffs++; out.days[dayKey(l.ts)].handoffs++; }
+      for (const c of acc.calls.values()) {
+        if (c.ts < first) continue;
+        const d = out.days[dayKey(c.ts)];
+        if (!d) continue;
+        const fam = familyOf(c.model);
+        const t = tokensOf(c), cost = c.cost ?? 0;
+        const opus = estimateCost(OPUS, { input_tokens: c.input, output_tokens: c.output, cache_read_input_tokens: c.cacheRead, cache_creation_input_tokens: c.cacheWrite }) ?? cost;
+        const m = d.models[fam] ?? blank(); m.tokens += t; m.output += c.output; m.cost += cost; d.models[fam] = m;
+        const b = split ? d.split : d.main; b.tokens += t; b.output += c.output; b.cost += cost;
+        d.allOpus += Math.max(opus, cost);
+        const cb = split ? ch.split : ch.main; cb.tokens += t; cb.output += c.output; cb.cost += cost;
+        ch.allOpus += Math.max(opus, cost);
+      }
+      chats.set(acc.sessionId, ch);
+    }
+    out.chats = [...chats.values()].filter((c) => c.main.tokens + c.split.tokens > 0).sort((a, b) => b.main.cost + b.split.cost - (a.main.cost + a.split.cost));
+    return out;
   }
 
   /** Crossings: per chat (sub-agents folded in), the files it wrote and its git commands since `since`. */

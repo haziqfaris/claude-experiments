@@ -9,6 +9,7 @@ import { hueOf, MAIN_HUE, seedOf } from './projects';
 import { fmtCost, fmtTokens } from './format';
 import { LockPrefs, readLocked, readPrefs, writeLocked, writePrefs } from './lock';
 import { CrossingsView, liveAlerts } from './v4/crossings';
+import { SavingsView } from './v4/savings';
 import { ChatsView, InventoryView, ProjectsView, TasksView, TodayHUD, VIEWS, type AppCtx, type View } from './v4/views';
 import { ChatPanel, DocModal, Palette, SendDialog, TaskPanel } from './v4/panels';
 import { Avatar, chatName, Icon } from './v4/ui';
@@ -254,6 +255,7 @@ const App: React.FC = () => {
             {view === 'chats' && <ChatsView ctx={ctx} topoMode={topoMode} setTopoMode={setTopoMode} />}
             {view === 'crossings' && <CrossingsView ctx={ctx} />}
             {view === 'tasks' && <TasksView ctx={ctx} />}
+            {view === 'savings' && <SavingsView ctx={ctx} />}
             {view === 'projects' && <ProjectsView ctx={ctx} />}
             {view === 'inventory' && <InventoryView ctx={ctx} onDoc={openDoc} />}
           </main>

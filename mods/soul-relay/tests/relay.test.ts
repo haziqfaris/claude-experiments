@@ -274,4 +274,48 @@ describe('the soul home', () => {
     expect(String((on1 as { text?: string }).text)).toContain("soul's home")
     expect(String((off as { text?: string }).text)).toContain('no longer')
   })
+
+  test('auto-split adds its instruction on an expensive model once switched on, and never for workers', async ($, on) => {
+    let split = false
+    const posts: string[] = []
+    mock.store(on)
+    mock.clock(on)
+    engineBottom(on)
+    on('session.model', () => ({ value: 'claude-opus-5-5' }))
+    on('session.id', () => ({ value: 'boss-session' }))
+    on('session.cwd', () => ({ value: '/work/payments-api' }))
+    on('session.start', () => ({ cwd: '/work/payments-api' }))
+    on('http.fetch', ($, e) => {
+      const url = String(e.url)
+      if (url.includes('/api/autosplit') && e.init?.method === 'POST') {
+        posts.push(String(e.init.body))
+        split = (JSON.parse(String(e.init.body)) as { on?: boolean }).on === true
+        return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ all: false, chats: { 'boss-session': split }, since: 1 }) } }
+      }
+      if (url.includes('/api/autosplit')) return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ on: split }) } }
+      return { value: { status: 200, ok: true, headers: {}, text: '{}' } }
+    })
+    on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude Code.', scope: 'shared' }] }))
+    const compose = (model: string, tools: string[]) => $.prompt.compose({ model, promptModel: model, surfaces: [], tools, outputStyle: null, traits: [] } as never)
+
+    await $.session.start({ source: 'startup', cwd: '/work/payments-api', surface: null } as never)
+    const before = await compose('claude-opus-5-5', ['Agent', 'Bash'])
+    expect(before.sections.map(x => x.id)).not.toContain('soul-relay:auto-split')
+
+    const r = await $.command.run({ command: 'soul-split', args: 'on', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as never)
+    expect(posts[0]).toContain('"session":"boss-session"')
+    expect(posts[0]).toContain('"on":true')
+    expect(String((r as { text?: string }).text)).toContain('Auto-split is on')
+
+    const after = await compose('claude-opus-5-5', ['Agent', 'Bash'])
+    const sec = after.sections.find(x => x.id === 'soul-relay:auto-split')
+    expect(sec?.scope).toBe('session')
+    expect(sec?.text).toContain('soul-relay:haiku-worker')
+    // A Haiku worker, or a request that cannot start sub-agents, never gets it.
+    expect((await compose('claude-haiku-5-5', ['Agent', 'Bash'])).sections.map(x => x.id)).not.toContain('soul-relay:auto-split')
+    expect((await compose('claude-opus-5-5', ['Bash', 'Read'])).sections.map(x => x.id)).not.toContain('soul-relay:auto-split')
+
+    await $.command.run({ command: 'soul-split', args: 'off', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as never)
+    expect((await compose('claude-opus-5-5', ['Agent'])).sections.map(x => x.id)).not.toContain('soul-relay:auto-split')
+  })
 })
