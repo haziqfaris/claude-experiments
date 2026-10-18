@@ -81,3 +81,89 @@ const AccountEditor: React.FC<{ a: AccountView; project: string; onDone: (c: Acc
     </form>
   );
 };
+
+// ---- Infrastructure: per provider, how many accounts, and which projects and cloud projects sit under each ----
+export interface InfraRow { project: string; repo: string | null; cloud: string | null; a: AccountView }
+export interface InfraProvider { provider: string; accounts: { key: string; label: string; known: boolean; rows: InfraRow[] }[]; projects: number; clouds: number }
+
+/** Groups every project's use of a provider by the account it runs under (login e-mail, else account ID). */
+export function infraByProvider(rows: InfraRow[]): InfraProvider[] {
+  const by = new Map<string, InfraRow[]>();
+  for (const r of rows) by.set(r.a.provider, [...(by.get(r.a.provider) ?? []), r]);
+  return [...by].map(([provider, rs]) => {
+    const groups = new Map<string, InfraRow[]>();
+    for (const r of rs) { const k = (r.a.email ?? r.a.account ?? '').toLowerCase() || '?'; groups.set(k, [...(groups.get(k) ?? []), r]); }
+    const accounts = [...groups].map(([key, g]) => ({ key, known: key !== '?', label: key === '?' ? 'Account not known' : g[0].a.email ?? g[0].a.account ?? key, rows: g.sort((a, b) => a.project.localeCompare(b.project)) }))
+      .sort((a, b) => Number(b.known) - Number(a.known) || b.rows.length - a.rows.length);
+    return { provider, accounts, projects: new Set(rs.map((r) => r.project)).size, clouds: new Set(rs.map((r) => r.cloud).filter(Boolean)).size };
+  }).sort((a, b) => b.projects - a.projects || a.provider.localeCompare(b.provider));
+}
+
+export const InfraOverview: React.FC<{ list: InfraProvider[]; onPick: (provider: string) => void; picked: string | null; onSaved: (c: AccountsConfig) => void }> = ({ list, onPick, picked, onSaved }) => {
+  const [open, setOpen] = useState<string | null>(null);
+  if (!list.length) return null;
+  return (
+    <section className="infra">
+      <div className="section-h" style={{ marginTop: 0 }}><h2>Infrastructure</h2><span className="tiny dim">accounts per provider, and the projects under each · click a card for detail</span></div>
+      <div className="infra-grid">
+        {list.map((p) => {
+          const known = p.accounts.filter((a) => a.known).length, unknown = p.accounts.find((a) => !a.known);
+          const isOpen = open === p.provider;
+          return (
+            <article key={p.provider} className={`glass infra-card ${isOpen ? 'open' : ''} ${picked === p.provider ? 'picked' : ''}`}>
+              <button type="button" className="infra-h" onClick={() => setOpen(isOpen ? null : p.provider)} aria-expanded={isOpen}>
+                <b>{p.provider}</b>
+                <span className={`infra-n ${known ? '' : 'none'}`}>{known ? `${known} account${known === 1 ? '' : 's'}` : 'no account noted'}{unknown && known ? ` + ${unknown.rows.length} unknown` : ''}</span>
+                <span className="tiny muted">{p.projects} project{p.projects === 1 ? '' : 's'}{p.clouds ? ` · ${p.clouds} cloud project${p.clouds === 1 ? '' : 's'}` : ''}</span>
+              </button>
+              {isOpen && <div className="infra-b">
+                {p.accounts.map((a) => (
+                  <div key={a.key} className="infra-acct">
+                    <div className={`infra-al ${a.known ? '' : 'unknown'}`}>{a.label}<span className="tiny dim"> · {a.rows.length}</span></div>
+                    {a.rows.map((r, i) => <div key={i} className="infra-r"><span>{r.project}</span><small>{r.cloud ?? (r.repo ? `uses it (${r.repo})` : 'uses it')}</small></div>)}
+                    {!a.known && <AssignAccount provider={p.provider} projects={[...new Set(a.rows.map((r) => r.project))]} onSaved={onSaved} />}
+                  </div>
+                ))}
+                <button type="button" className="btn text sm" onClick={() => onPick(p.provider)}>{picked === p.provider ? 'Show all rows' : `Show only ${p.provider} rows`}</button>
+              </div>}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
+
+/** Note one login e-mail (and account name) for several projects at once. */
+const AssignAccount: React.FC<{ provider: string; projects: string[]; onSaved: (c: AccountsConfig) => void }> = ({ provider, projects, onSaved }) => {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [account, setAccount] = useState('');
+  const [pick, setPick] = useState<Set<string>>(() => new Set(projects));
+  const [err, setErr] = useState('');
+  if (!open) return <button type="button" className="btn text sm infra-add" onClick={() => setOpen(true)}>Note which account these use…</button>;
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() && !account.trim()) { setErr('Add an e-mail or an account name.'); return; }
+    let last: AccountsConfig | null = null;
+    for (const project of pick) {
+      const r = await fetch('/api/accounts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider, project, email, account }) }).catch(() => null);
+      const d = r ? await r.json() : { error: 'The hub is not answering.' };
+      if (!r?.ok) { setErr(d.error ?? 'Not saved.'); return; }
+      last = d as AccountsConfig;
+    }
+    if (last) onSaved(last);
+    setOpen(false); setEmail(''); setAccount('');
+  };
+  return (
+    <form className="infra-form" onSubmit={save}>
+      <div className="infra-form-f">
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={`${provider} login e-mail`} aria-label="Login e-mail" />
+        <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder="Account or org name (optional)" aria-label="Account name" />
+      </div>
+      <div className="infra-picks">{projects.map((p) => <label key={p}><input type="checkbox" checked={pick.has(p)} onChange={(e) => { const n = new Set(pick); if (e.target.checked) n.add(p); else n.delete(p); setPick(n); }} />{p}</label>)}</div>
+      <div className="acct-btns">{err && <span className="tiny" style={{ color: 'var(--red)' }}>{err}</span>}<button type="button" className="btn text sm" onClick={() => setOpen(false)}>Cancel</button><button type="submit" className="btn primary sm" disabled={!pick.size}>Save for {pick.size} project{pick.size === 1 ? '' : 's'}</button></div>
+      <p className="tiny dim">Names and addresses only. Projects on different accounts: save once per account, ticking only its projects.</p>
+    </form>
+  );
+};

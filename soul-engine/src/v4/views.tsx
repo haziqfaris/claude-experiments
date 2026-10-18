@@ -6,7 +6,7 @@ import { ago, fmtCost, fmtTokens } from '../format';
 import { usePoll } from '../services/soulService';
 import { SoulChat, HomePicker, type SoulMsg } from './soulchat';
 import { liveAlerts } from './crossings';
-import { AccountLine, AccountsStrip } from './accounts';
+import { AccountLine, AccountsStrip, InfraOverview, infraByProvider, type InfraRow } from './accounts';
 import { accountFor, providerOf, type AccountView } from '../accounts';
 import { Avatar, chatName, Health, Icon, MODEL_C, Progress, ReadinessTrack, recentSplits, since, SplitBoard, StageTrack, StatePill, Topology } from './ui';
 
@@ -375,8 +375,27 @@ export const InventoryView: React.FC<{ ctx: AppCtx; onDoc: (kind: 'access-regist
     return out;
   }, [inv, acfg]);
   const all = rows.filter((r) => !ctx.scope || r.project === ctx.scope);
+  const [picked, setPicked] = useState<string | null>(null);
+  // Infrastructure: every repo's own account for a provider, or the project's merged one when no repo names it.
+  const infra = useMemo(() => {
+    if (!inv) return [];
+    const out: InfraRow[] = [];
+    for (const g of inv.groups) {
+      if (ctx.scope && g.name !== ctx.scope) continue;
+      const repos = g.repos.map((id) => inv.projects.find((p) => p.id === id)).filter((r): r is NonNullable<typeof r> => !!r);
+      const used = new Map<string, string>();
+      for (const r of repos) for (const f of r.facts) { const pv = providerOf(f); if (pv && !used.has(pv)) used.set(pv, r.name); }
+      for (const r of repos) for (const d of r.accounts ?? []) if (!used.has(d.provider)) used.set(d.provider, r.name);
+      for (const [pv, firstRepo] of used) {
+        const found = repos.flatMap((r) => (r.accounts ?? []).filter((d) => d.provider === pv).map((d) => ({ r, d })));
+        if (found.length) for (const { r, d } of found) { const a = accountFor(pv, g.name, [d], acfg); out.push({ project: g.name, repo: r.name, cloud: a.project ?? null, a }); }
+        else { const a = accountFor(pv, g.name, [], acfg); out.push({ project: g.name, repo: firstRepo, cloud: a.project ?? null, a }); }
+      }
+    }
+    return infraByProvider(out);
+  }, [inv, acfg, ctx.scope]);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = all.filter((r) => (cat === 'all' || r.f.category === cat) && words.every((w) => `${r.project} ${r.repo} ${r.f.label} ${r.f.value} ${r.svc} ${r.f.evidence.join(' ')} ${r.acct ? `${r.acct.provider} ${r.acct.account ?? ''} ${r.acct.email ?? ''} ${r.acct.project ?? ''}` : ''}`.toLowerCase().includes(w)));
+  const shown = all.filter((r) => (cat === 'all' || r.f.category === cat) && (!picked || r.provider === picked) && words.every((w) => `${r.project} ${r.repo} ${r.f.label} ${r.f.value} ${r.svc} ${r.f.evidence.join(' ')} ${r.acct ? `${r.acct.provider} ${r.acct.account ?? ''} ${r.acct.email ?? ''} ${r.acct.project ?? ''}` : ''}`.toLowerCase().includes(w)));
   const count = (c: InventoryCategory) => all.filter((r) => r.f.category === c).length;
   const attention = all.filter((r) => r.flag);
   const keyRepos = new Map<string, Set<string>>();
@@ -408,6 +427,7 @@ export const InventoryView: React.FC<{ ctx: AppCtx; onDoc: (kind: 'access-regist
         <div className="seg" role="group" aria-label="Group by"><button type="button" aria-pressed={group === 'project'} onClick={() => setGroup('project')}>By project</button><button type="button" aria-pressed={group === 'service'} onClick={() => setGroup('service')}>By service</button></div>
       </div>
       <div className="chiprow"><button type="button" className="fchip" aria-pressed={cat === 'all'} onClick={() => setCat('all')}>All <span>{all.length}</span></button>{CATS.filter(([c]) => count(c)).map(([c, l]) => <button key={c} type="button" className="fchip" aria-pressed={cat === c} onClick={() => setCat(c)}><i className={`cat-dot c-${c}`} />{l} <span>{count(c)}</span></button>)}</div>
+      <InfraOverview list={infra} picked={picked} onPick={(p) => setPicked(picked === p ? null : p)} onSaved={setSaved} />
       <div className="invgrid">
         <div>
           {!inv && <div className="skel" />}
