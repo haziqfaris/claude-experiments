@@ -23,6 +23,7 @@ import { guard } from './guard';
 import { askHome, askStatus, getHome, setHome } from './home';
 import { ackMessage, buildFeed, buildTasks, collectMessages, outboxList, queueMessage, toChatItems } from './board';
 import { buildCrossings } from './crossings';
+import { loadAccounts, saveAccount } from './accounts';
 import type { FlowGraph, Inventory } from '../src/types';
 
 /** The project (a group in projects.local.json) a folder belongs to, by repo path. */
@@ -205,6 +206,15 @@ const server = http.createServer(async (req, res) => {
       const key = url.searchParams.get('key') ?? '';
       const markdown = rotationChecklist(inventory.get(), key);
       return markdown ? json(res, 200, { title: `Rotate ${key}`, file: `rotate-${key.toLowerCase()}.md`, markdown }) : json(res, 404, { error: 'no repo uses that key' });
+    }
+
+    // ---- Accounts you noted (login e-mail, account, cloud project) per provider; saved in accounts.local.json ----
+    if (url.pathname === '/api/accounts') {
+      if (req.method === 'GET') return json(res, 200, await loadAccounts());
+      if (req.method === 'POST') {
+        const r = await saveAccount(JSON.parse(await readBody(req, 4 * 1024)));
+        return typeof r === 'string' ? json(res, 400, { error: r }) : json(res, 200, r);
+      }
     }
 
     if (req.method === 'POST' && url.pathname === '/api/inventory/rescan') {

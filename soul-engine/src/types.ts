@@ -178,6 +178,27 @@ export interface ProjectInventory {
   /** Other folders holding a copy or worktree of the same repo. */
   alsoAt?: string[];
   facts: InventoryFact[];
+  /** Accounts and cloud projects its config files name (IDs and names only, never a secret). */
+  accounts?: RepoAccount[];
+}
+
+/** An account, its login e-mail and the cloud project, as far as anyone knows. */
+export interface AccountNote {
+  account?: string | null;
+  email?: string | null;
+  project?: string | null;
+}
+
+/** What one repo's files say about one provider's account. */
+export interface RepoAccount extends AccountNote {
+  provider: string;
+  evidence: string;
+}
+
+/** accounts.local.json: what you noted, for every project (providers) or for one project. */
+export interface AccountsConfig {
+  providers: Record<string, AccountNote>;
+  projects: Record<string, Record<string, AccountNote>>;
 }
 
 /** A project and its repos, in display order. */

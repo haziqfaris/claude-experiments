@@ -1,11 +1,13 @@
 // The five places of v4: Today (the soul, full page), Chats, Tasks, Projects, Inventory.
 import React, { useMemo, useState } from 'react';
-import type { ChatItem, Crossings, FeedItem, Inventory, InventoryCategory, InventoryFact, ProjectStatus, Snapshot, TaskItem } from '../types';
+import type { AccountsConfig, ChatItem, Crossings, FeedItem, Inventory, InventoryCategory, InventoryFact, ProjectStatus, Snapshot, TaskItem } from '../types';
 import { hueOf } from '../projects';
 import { ago, fmtCost, fmtTokens } from '../format';
 import { usePoll } from '../services/soulService';
 import { SoulChat, HomePicker, type SoulMsg } from './soulchat';
 import { liveAlerts } from './crossings';
+import { AccountLine, AccountsStrip } from './accounts';
+import { accountFor, providerOf, type AccountView } from '../accounts';
 import { Avatar, chatName, Health, Icon, MODEL_C, Progress, ReadinessTrack, recentSplits, since, SplitBoard, StageTrack, StatePill, Topology } from './ui';
 
 export type View = 'today' | 'chats' | 'crossings' | 'tasks' | 'projects' | 'inventory';
@@ -343,7 +345,7 @@ const Overview: React.FC<{ s: ProjectStatus; ctx: AppCtx }> = ({ s, ctx }) => {
 
 // ---- Inventory ----
 const CATS: [InventoryCategory, string][] = [['service', 'Tools'], ['apikey', 'API keys'], ['api', 'APIs called'], ['hosting', 'Hosting'], ['domain', 'Domains'], ['email', 'E-mails'], ['signin', 'Sign-in'], ['job', 'Jobs'], ['default', 'Defaults']];
-interface Row { project: string; repo: string; f: InventoryFact; svc: string; flag: string | null }
+interface Row { project: string; repo: string; f: InventoryFact; svc: string; flag: string | null; provider: string | null; acct: AccountView | null }
 const serviceOf = (f: InventoryFact) => {
   const v = f.category === 'apikey' || f.category === 'api' ? f.value : f.label;
   const m = /^([A-Z][\w.]*(?:\s[A-Z][\w.]*)?)/.exec(v.replace(/^Unknown.*/, 'Unknown'));
@@ -355,18 +357,26 @@ export const InventoryView: React.FC<{ ctx: AppCtx; onDoc: (kind: 'access-regist
   const [group, setGroup] = useState<'project' | 'service'>('project');
   const changes = usePoll<{ report: { repos: { project: string; repo: string; added: InventoryFact[]; removed: InventoryFact[] }[]; firstRun: boolean } }>(`/api/inventory/changes?days=7${ctx.scope ? `&project=${encodeURIComponent(ctx.scope)}` : ''}`, 60000);
   const inv = ctx.inventory;
+  const polled = usePoll<AccountsConfig>('/api/accounts', 60000);
+  const [saved, setSaved] = useState<AccountsConfig | null>(null);
+  const acfg = saved ?? polled;
   const rows: Row[] = useMemo(() => {
     if (!inv) return [];
     const out: Row[] = [];
     for (const g of inv.groups) for (const id of g.repos) {
       const r = inv.projects.find((p) => p.id === id); if (!r) continue;
-      for (const f of r.facts) if (f.category !== 'env' && f.category !== 'register') out.push({ project: g.name, repo: r.name, f, svc: serviceOf(f), flag: /^Unknown/.test(f.value) ? 'unknown key' : /•••/.test(f.value) ? 'personal address' : /tests only/i.test(f.value) ? 'tests only' : null });
+      // Accounts: what this project's repos show, then what you noted.
+      const detected = g.repos.flatMap((rid) => inv.projects.find((p) => p.id === rid)?.accounts ?? []);
+      for (const f of r.facts) if (f.category !== 'env' && f.category !== 'register') {
+        const provider = providerOf(f);
+        out.push({ project: g.name, repo: r.name, f, svc: serviceOf(f), flag: /^Unknown/.test(f.value) ? 'unknown key' : /•••/.test(f.value) ? 'personal address' : /tests only/i.test(f.value) ? 'tests only' : null, provider, acct: provider ? accountFor(provider, g.name, detected, acfg) : null });
+      }
     }
     return out;
-  }, [inv]);
+  }, [inv, acfg]);
   const all = rows.filter((r) => !ctx.scope || r.project === ctx.scope);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = all.filter((r) => (cat === 'all' || r.f.category === cat) && words.every((w) => `${r.project} ${r.repo} ${r.f.label} ${r.f.value} ${r.svc} ${r.f.evidence.join(' ')}`.toLowerCase().includes(w)));
+  const shown = all.filter((r) => (cat === 'all' || r.f.category === cat) && words.every((w) => `${r.project} ${r.repo} ${r.f.label} ${r.f.value} ${r.svc} ${r.f.evidence.join(' ')} ${r.acct ? `${r.acct.provider} ${r.acct.account ?? ''} ${r.acct.email ?? ''} ${r.acct.project ?? ''}` : ''}`.toLowerCase().includes(w)));
   const count = (c: InventoryCategory) => all.filter((r) => r.f.category === c).length;
   const attention = all.filter((r) => r.flag);
   const keyRepos = new Map<string, Set<string>>();
@@ -375,7 +385,7 @@ export const InventoryView: React.FC<{ ctx: AppCtx; onDoc: (kind: 'access-regist
   const factRow = (r: Row, showProject: boolean, i: number) => (
     <div className="fact" key={`${r.repo}:${r.f.label}:${r.f.value}:${i}`}>
       <span className={`cat-dot c-${r.f.category}`} title={CATS.find((c) => c[0] === r.f.category)?.[1]} />
-      <div style={{ minWidth: 0 }}><div className="fact-label">{r.f.label}{r.flag && <span className="pill p-wait" style={{ marginLeft: 6 }}>{r.flag}</span>}</div><div className="tiny muted">{r.f.value}{showProject ? <> · <span style={{ color: hueOf(r.project) }}>{r.project}</span></> : null}</div></div>
+      <div style={{ minWidth: 0 }}><div className="fact-label">{r.f.label}{r.flag && <span className="pill p-wait" style={{ marginLeft: 6 }}>{r.flag}</span>}</div><div className="tiny muted">{r.f.value}{showProject ? <> · <span style={{ color: hueOf(r.project) }}>{r.project}</span></> : null}</div>{r.acct && <AccountLine a={r.acct} />}</div>
       <span className="code dim fact-ev" title={r.f.evidence.join(', ')}>{r.repo}/{r.f.evidence[0] ?? ''}</span>
       {r.f.category === 'apikey' ? <button type="button" className="ghost" onClick={() => onDoc('rotation', r.f.label)}>Rotation</button> : <span />}
     </div>
@@ -408,6 +418,7 @@ export const InventoryView: React.FC<{ ctx: AppCtx; onDoc: (kind: 'access-regist
                 <div className="invhead"><Avatar name={group === 'service' ? key : key} /><div><div className="pname" style={{ fontSize: 15 }}>{key}</div>
                   <div className="tiny muted">{group === 'service' ? `used by ${[...new Set(gr.map((r) => r.project))].join(', ')}` : `${repos.length} repo${repos.length === 1 ? '' : 's'} · ${gr.length} facts`}</div></div>
                   {group === 'project' && <button type="button" className="ghost" style={{ marginLeft: 'auto' }} onClick={() => onDoc('access-register', key)}>Access Register</button>}</div>
+                {group === 'project' && <AccountsStrip project={key} rows={gr.filter((r) => r.acct).map((r) => r.acct!)} onSaved={setSaved} />}
                 {group === 'project' ? repos.map((rp) => <React.Fragment key={rp}><div className="tiny dim repo-sub">{rp}</div>{gr.filter((r) => r.repo === rp).slice(0, 60).map((r, i) => factRow(r, false, i))}</React.Fragment>)
                   : gr.slice(0, 40).map((r, i) => factRow(r, true, i))}
               </section>

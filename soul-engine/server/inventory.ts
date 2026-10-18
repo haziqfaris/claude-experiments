@@ -5,6 +5,7 @@
 // Read-only. Never reads .env files (only .env.example and similar, names only), never returns a
 // secret value: anything that looks like a password, key or token is replaced with [hidden].
 // Personal and client addresses are masked unless their domain is one of SOUL_OWN_DOMAINS.
+import { detectAccounts } from './accounts';
 import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -318,9 +319,11 @@ export async function scanProject(dir: string, name = path.basename(dir)): Promi
   for (const [k, c] of [...modelCount.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 8)) facts.add('default', 'AI model referenced', k, c.ev);
 
   const remote = (await git(dir, ['remote', 'get-url', 'origin'])).replace(/\/\/[^@/]+@/, '//').replace(/\.git$/, '') || null;
+  const list = facts.list();
+  const accounts = await detectAccounts(dir, remote, list);
   return {
     id: dir.toLowerCase(), name: remote ? remote.split('/').pop()! : name, project: name, kind: 'other', path: dir, repo: remote, branch: (await git(dir, ['branch', '--show-current'])) || null,
-    scannedAt: Date.now(), filesScanned: scanned, facts: facts.list(),
+    scannedAt: Date.now(), filesScanned: scanned, facts: list, accounts,
   };
 }
 
