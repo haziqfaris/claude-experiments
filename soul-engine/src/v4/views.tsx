@@ -4,6 +4,7 @@ import type { ChatItem, FeedItem, Inventory, InventoryCategory, InventoryFact, P
 import { hueOf } from '../projects';
 import { ago, fmtCost, fmtTokens } from '../format';
 import { usePoll } from '../services/soulService';
+import { SoulChat, HomePicker, type SoulMsg } from './soulchat';
 import { Avatar, chatName, Health, Icon, MODEL_C, Progress, ReadinessTrack, recentSplits, since, SplitBoard, StageTrack, StatePill, Topology } from './ui';
 
 export type View = 'today' | 'chats' | 'tasks' | 'projects' | 'inventory';
@@ -71,7 +72,15 @@ const ProjectCard: React.FC<{ s: ProjectStatus; ctx: AppCtx }> = ({ s, ctx }) =>
 };
 
 // ---- Today: the soul as a full page, only a HUD ----
-export interface AskState { answer: string; meta: string; busy: boolean; onAsk: (q: string) => void; /** The soul's home chat, when one is set with /soul-home. */ home?: string | null }
+export interface AskState {
+  msgs: SoulMsg[];
+  busy: boolean;
+  onAsk: (q: string) => void;
+  onClear: () => void;
+  /** The Claude Code chat that answers (the soul's home), or null for offline answers. */
+  home: { session: string; name: string | null } | null;
+  onPick: (session: string | null) => void;
+}
 export const TodayHUD: React.FC<{ ctx: AppCtx; soul: React.ReactNode; badges: Partial<Record<View, [number, string]>>; ask: AskState; onSearch: () => void; onLock: () => void; update: boolean }> = ({ ctx, soul, badges, ask, onSearch, onLock, update }) => {
   const chats = ctx.chats.filter((c) => inScope(ctx, c.project));
   const waiting = chats.filter((c) => c.state === 'waiting'), working = chats.filter((c) => c.state === 'working');
@@ -122,17 +131,15 @@ export const TodayHUD: React.FC<{ ctx: AppCtx; soul: React.ReactNode; badges: Pa
         </ol>
       </aside>
       <div className="hud-bottom">
-        {ask.answer ? <div className="answer">{ask.answer}{ask.meta && <div className="meta">{ask.meta}</div>}</div>
+        {ask.msgs.length ? <SoulChat msgs={ask.msgs} hue={ctx.scope ? hueOf(ctx.scope) : '#34d399'} onClear={ask.onClear} title={ctx.scope ? `Soul of ${ctx.scope}` : 'The soul'} />
           : <div className="soulmurmur">{feed[0]?.text ?? ''}</div>}
         <form className="hud-ask" onSubmit={(e) => { e.preventDefault(); if (q.trim() && !ask.busy) { ask.onAsk(q.trim()); setQ(''); } }}>
           <span style={{ color: 'var(--accent)', display: 'flex' }}>{Icon.spark}</span>
           <label htmlFor="ask" className="sr">Ask the soul</label>
-          <input id="ask" value={q} onChange={(e) => setQ(e.target.value)} placeholder={ask.busy ? 'Thinking…' : ctx.scope ? `Ask the soul of ${ctx.scope}…` : 'Ask the soul about any project…'} autoComplete="off" />
+          <input id="ask" value={q} onChange={(e) => setQ(e.target.value)} placeholder={ask.busy ? 'The soul is answering…' : ctx.scope ? `Ask the soul of ${ctx.scope}…` : 'Ask the soul about any project…'} autoComplete="off" />
           <kbd>Enter</kbd>
         </form>
-        {ask.home
-          ? <div className="tiny" style={{ color: 'var(--accent)', opacity: 0.85, textAlign: 'center' }}>Answered by your soul chat “{ask.home}” in Claude Code, on your subscription.</div>
-          : <div className="tiny" style={{ color: 'var(--wait)', opacity: 0.8, textAlign: 'center' }}>Offline answers for now. For real ones, open a Claude Code chat and type /soul-home: the soul answers there, on your subscription.</div>}
+        <HomePicker chats={ctx.chats} home={ask.home} onPick={ask.onPick} />
       </div>
     </section>
   );

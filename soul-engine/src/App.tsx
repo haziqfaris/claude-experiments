@@ -12,6 +12,7 @@ import { ChatsView, InventoryView, ProjectsView, TasksView, TodayHUD, VIEWS, typ
 import { ChatPanel, DocModal, Palette, SendDialog, TaskPanel } from './v4/panels';
 import { Avatar, chatName, Icon } from './v4/ui';
 import { LockMenu } from './v4/lockmenu';
+import type { SoulMsg } from './v4/soulchat';
 import './v4/v4.css';
 
 // Routes: "#/" Today, "#/chats", "#/tasks", "#/projects", "#/inventory"; inside a project "#/p/<project>/<view>".
@@ -47,7 +48,6 @@ const App: React.FC = () => {
   const [doc, setDoc] = useState<{ title: string; markdown: string } | null>(null);
   const [toast, setToast] = useState('');
   const [topoMode, setTopoMode] = useState<'diagram' | 'board'>('diagram');
-  const [answer, setAnswer] = useState({ answer: '', meta: '', busy: false });
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -112,45 +112,69 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', key);
   });
 
-  // ---- Ask the soul (offline unless SOUL_ASK_API=on) ----
-  // The soul's home chat (set with /soul-home in Claude Code) answers on your subscription; offline otherwise.
-  const homeInfo = usePoll<{ home: { session: string; name: string | null } | null }>('/api/soul/home', 10000);
-  const home = homeInfo?.home ?? null;
-  const askHome = async (q: string, h: { session: string; name: string | null }) => {
-    const who = h.name ? `“${h.name}”` : 'your soul chat';
-    setAnswer({ answer: `Asking ${who}…`, meta: 'sent to your soul chat in Claude Code', busy: true });
-    let id: string | null = null;
+  // ---- Ask the soul: a conversation per soul (main, or one project's). The home chat answers on your
+  // subscription; with no home chat the hub answers offline. ----
+  const homeInfo = usePoll<{ home: { session: string; name: string | null } | null }>('/api/soul/home', 5000);
+  const [homeOverride, setHomeOverride] = useState<{ session: string; name: string | null } | null | undefined>(undefined);
+  const home = homeOverride !== undefined ? homeOverride : homeInfo?.home ?? null;
+  useEffect(() => { setHomeOverride(undefined); }, [homeInfo]);
+  const pickHome = async (session: string | null) => {
+    const c = session ? chats.find((x) => x.id === session) : null;
+    setHomeOverride(session ? { session, name: c ? chatName(c) : null } : null);
     try {
-      const r = await fetch('/api/ask/home', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question: q, scope }) });
-      id = ((await r.json()) as { id?: string }).id ?? null;
-    } catch { /* falls through */ }
-    if (!id) { setAnswer({ answer: 'The hub did not take the question.', meta: '', busy: false }); return; }
-    const started = Date.now();
-    const label: Record<string, string> = { queued: `Waiting for ${who} to pick it up (its Claude Code window must be open)…`, delivered: `${who} has the question; it starts when the chat is free…`, started: `${who} is thinking…`, thinking: `${who} is thinking…` };
-    while (Date.now() - started < 5 * 60_000) {
-      await new Promise((r) => setTimeout(r, 1500));
-      try {
-        const s = (await (await fetch(`/api/ask/home?id=${id}`, { cache: 'no-store' })).json()) as { status: string; answer: string | null; chat: string | null; reason: string | null };
-        if (s.status === 'answered') { setAnswer({ answer: s.answer ?? '', meta: `answered by your soul chat${s.chat ? ` · ${s.chat}` : ''} · on your subscription`, busy: false }); return; }
-        if (s.status === 'failed') { setAnswer({ answer: `${who} could not start on it: ${s.reason ?? 'unknown reason'}.`, meta: '', busy: false }); return; }
-        setAnswer({ answer: label[s.status] ?? 'Waiting…', meta: 'sent to your soul chat in Claude Code', busy: true });
-      } catch { /* hub restarting: keep waiting */ }
-    }
-    setAnswer({ answer: `No answer from ${who} after five minutes. Is its Claude Code window open?`, meta: '', busy: false });
+      await fetch('/api/soul/home', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(session ? { session, cwd: c?.cwd ?? null } : { off: true }) });
+      flash(session ? `The soul now answers from “${c ? chatName(c) : 'that chat'}”. Keep its Claude Code window open.` : 'The soul answers offline now.');
+    } catch { flash('The hub is not answering.'); }
   };
+  const [threads, setThreads] = useState<Record<string, SoulMsg[]>>({});
+  const tkey = scope ?? '';
+  const msgs = threads[tkey] ?? [];
+  const busy = msgs.some((m) => m.pending);
+  const put = (key: string, id: string, patch: Partial<SoulMsg>) => setThreads((t) => ({ ...t, [key]: (t[key] ?? []).map((m) => (m.id === id ? { ...m, ...patch } : m)) }));
 
   const onAsk = async (q: string) => {
-    if (home) { await askHome(q, home); return; }
-    setAnswer({ answer: '', meta: '', busy: true });
-    let text = '', meta = '';
-    try {
-      await querySoulEngine({ question: q, focusId: null, history: [], scope }, (e) => {
-        if (e.type === 'meta') meta = `${e.offline ? 'offline answer' : e.model}${e.projects.length ? ` · ${e.projects.join(', ')}` : ''}`;
-        else if (e.type === 'delta') { text += e.text; setAnswer({ answer: text, meta, busy: true }); }
-        else if (e.type === 'error') { text += `\n${e.message}`; }
-      });
-    } catch { text = 'The hub is not answering.'; }
-    setAnswer({ answer: text || 'No answer.', meta, busy: false });
+    const key = tkey, now = Date.now(), you = `y${now}`, sid = `s${now}`;
+    setThreads((t) => ({ ...t, [key]: [...(t[key] ?? []), { id: you, role: 'you', text: q, at: now }, { id: sid, role: 'soul', text: '', at: now, pending: true, status: home ? 'Sending it to your soul chat…' : 'Thinking…' }] }));
+    if (home) {
+      const who = home.name ? `“${home.name}”` : 'your soul chat';
+      let id: string | null = null;
+      try {
+        const r = await fetch('/api/ask/home', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question: q, scope }) });
+        id = ((await r.json()) as { id?: string }).id ?? null;
+      } catch { /* falls through */ }
+      if (!id) { put(key, sid, { pending: false, text: 'The hub did not take the question.', at: Date.now() }); return; }
+      const label: Record<string, string> = { queued: `Waiting for ${who} to pick it up. Its Claude Code window must be open.`, delivered: `${who} has it and starts when it is free…`, started: 'Thinking…', thinking: 'Thinking…' };
+      const t0 = Date.now();
+      while (Date.now() - t0 < 5 * 60_000) {
+        await new Promise((r) => setTimeout(r, 1500));
+        try {
+          const s = (await (await fetch(`/api/ask/home?id=${id}`, { cache: 'no-store' })).json()) as { status: string; answer: string | null; chat: string | null; reason: string | null };
+          if (s.status === 'answered') { put(key, sid, { pending: false, text: s.answer ?? '', meta: `from ${s.chat ?? 'your soul chat'}`, at: Date.now() }); return; }
+          if (s.status === 'failed') { put(key, sid, { pending: false, text: `${who} could not start on it: ${s.reason ?? 'unknown reason'}.`, at: Date.now() }); return; }
+          put(key, sid, { status: label[s.status] ?? 'Waiting…' });
+        } catch { /* hub restarting: keep waiting */ }
+      }
+      put(key, sid, { pending: false, text: `No answer from ${who} after five minutes. Is its Claude Code window open?`, at: Date.now() });
+      return;
+    }
+    // With no home chat: a plain summary from what the dashboard already knows (it cannot reason about the question).
+    const inP = (p: string) => !scope || p === scope;
+    const waiting = chats.filter((c) => inP(c.project) && c.state === 'waiting');
+    const working = chats.filter((c) => inP(c.project) && c.state === 'working');
+    const down = (status ?? []).filter((s) => inP(s.name)).flatMap((s) => s.live.filter((l) => !l.ok && !l.staging && l.source !== 'platform address').map((l) => `${l.url} (${s.name})`));
+    const next = (status ?? []).filter((s) => inP(s.name)).slice(0, scope ? 1 : 4).map((s) => `**${s.name}:** ${s.next}`);
+    const lines = [
+      `I can’t think without a chat, but here is what I can see${scope ? ` in ${scope}` : ''}:`,
+      '',
+      waiting.length ? `**Waiting for you (${waiting.length})**` : '**Nothing is waiting for you.**',
+      ...waiting.map((c) => `- ${chatName(c)}${scope ? '' : ` (${c.project})`}: “${c.asked}”`),
+      working.length ? `**Working (${working.length})**` : '**No chat is working.**',
+      ...working.map((c) => `- ${chatName(c)}${c.doing ? `: ${c.doing.tool}${c.doing.detail ? ` · ${c.doing.detail}` : ''}` : ''}`),
+      ...(down.length ? [`**Not answering:** ${down.join(', ')}`] : []),
+      ...(next.length ? ['**Next**', ...next.map((n) => `- ${n}`)] : []),
+    ];
+    void querySoulEngine;
+    put(key, sid, { pending: false, text: lines.join('\n'), meta: 'offline · choose a chat below for real answers', at: Date.now() });
   };
 
   const openDoc = async (kind: 'access-register' | 'rotation', arg: string) => {
@@ -172,9 +196,9 @@ const App: React.FC = () => {
 
   // The soul reads the room: busy while it answers, its own hue while chats work, calm otherwise.
   const working = chats.filter((c) => inScope(c.project) && c.state === 'working').length;
-  const mood = answer.busy ? SoulMood.ANALYZING : working > 0 ? SoulMood.CONNECTED : SoulMood.IDLE;
+  const mood = busy ? SoulMood.ANALYZING : working > 0 ? SoulMood.CONNECTED : SoulMood.IDLE;
   const hue = scope ? hueOf(scope) : MAIN_HUE;
-  const soul = <SoulCore mood={mood} intensity={answer.busy ? 0.8 : Math.min(0.7, 0.25 + working * 0.1)} hue={hue} seed={scope ? seedOf(scope) : 0} />;
+  const soul = <SoulCore mood={mood} intensity={busy ? 0.8 : Math.min(0.7, 0.25 + working * 0.1)} hue={hue} seed={scope ? seedOf(scope) : 0} />;
 
   const immersive = view === 'today';
   useEffect(() => { document.body.classList.toggle('immersive', immersive); }, [immersive]);
@@ -221,7 +245,7 @@ const App: React.FC = () => {
             <div className="top-right"><button type="button" className="askbtn" onClick={() => go('today')}>{Icon.spark}<span>Ask the soul</span></button></div>
           </header>
           <main>
-            {view === 'today' && <TodayHUD ctx={ctx} soul={soul} badges={badges} ask={{ ...answer, onAsk, home: home ? home.name ?? 'your soul chat' : null }} onSearch={() => setPalette(true)} onLock={lock} update={newBuild} />}
+            {view === 'today' && <TodayHUD ctx={ctx} soul={soul} badges={badges} ask={{ msgs, busy, onAsk, onClear: () => setThreads((t) => ({ ...t, [tkey]: [] })), home, onPick: pickHome }} onSearch={() => setPalette(true)} onLock={lock} update={newBuild} />}
             {view === 'chats' && <ChatsView ctx={ctx} topoMode={topoMode} setTopoMode={setTopoMode} />}
             {view === 'tasks' && <TasksView ctx={ctx} />}
             {view === 'projects' && <ProjectsView ctx={ctx} />}
