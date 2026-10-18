@@ -125,3 +125,5 @@ export function ackMessage(id: string, ok: boolean, reason: string | null): Outb
   m.reason = ok ? null : (reason ?? 'unknown reason').slice(0, 300);
   return m;
 }
+
+export const outboxGet = (id: string) => outbox.find((m) => m.id === id) ?? null;

@@ -20,6 +20,7 @@ import { routePlan, routesMarkdown, suggestRoutes } from './routes';
 import { projectStatus, statusMarkdown } from './status';
 import { roadmapChanges, roadmapMarkdown } from './roadmap';
 import { guard } from './guard';
+import { askHome, askStatus, getHome, setHome } from './home';
 import { ackMessage, buildFeed, buildTasks, collectMessages, outboxList, queueMessage, toChatItems } from './board';
 import type { FlowGraph, Inventory } from '../src/types';
 
@@ -223,6 +224,30 @@ const server = http.createServer(async (req, res) => {
       if (url.pathname === '/api/feed') return json(res, 200, buildFeed(chats, status));
       return json(res, 200, buildTasks(chats, status, suggestRoutes(raw.filter((c) => Date.now() - c.lastActivity < 86_400_000))));
     }
+    // ---- The soul's home chat: /soul-home sets it; the ask bar asks it; the answer comes back from its transcript ----
+    if (url.pathname === '/api/soul/home') {
+      if (req.method === 'POST') {
+        const body = JSON.parse(await readBody(req, 4 * 1024)) as { session?: unknown; cwd?: unknown; off?: unknown };
+        if (body.off === true) { await setHome(null); return json(res, 200, { home: null }); }
+        if (typeof body.session !== 'string' || !body.session) return json(res, 400, { error: 'expected { session }' });
+        await setHome({ session: body.session, cwd: typeof body.cwd === 'string' ? body.cwd : null, at: Date.now() });
+      }
+      const h = await getHome();
+      const chat = h ? index.flow(30 * 86_400_000, 120).find((c) => c.id === h.session) : null;
+      return json(res, 200, { home: h ? { ...h, name: chat ? chat.name ?? chat.title : null, lastActivity: chat?.lastActivity ?? null } : null });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/ask/home') {
+      const body = JSON.parse(await readBody(req, 16 * 1024)) as { question?: unknown; scope?: unknown };
+      if (typeof body.question !== 'string' || !body.question.trim()) return json(res, 400, { error: 'expected { question }' });
+      const r = await askHome(body.question.trim().slice(0, 4000), typeof body.scope === 'string' ? body.scope : null);
+      return json(res, 'error' in r ? 409 : 201, r);
+    }
+    if (req.method === 'GET' && url.pathname === '/api/ask/home') {
+      const h = await getHome();
+      const s = askStatus(url.searchParams.get('id') ?? '', index.flow(7 * 86_400_000, 120), h?.session ?? null);
+      return s ? json(res, 200, s) : json(res, 404, { error: 'no such question' });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/outbox/ack') {
       const body = JSON.parse(await readBody(req, 4 * 1024)) as { id?: unknown; ok?: unknown; reason?: unknown };
       const m = typeof body.id === 'string' ? ackMessage(body.id, body.ok === true, typeof body.reason === 'string' ? body.reason : null) : null;

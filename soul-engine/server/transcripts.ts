@@ -235,7 +235,8 @@ function ingestLine(acc: FileAcc, line: string) {
           }
         }
         if (b?.type === 'text' && b.text && !acc.isSidechain) {
-          pushCapped(acc.replies, { ts, text: clip(String(b.text), 700) }, 4);
+          // Kept with its line breaks: the soul's home chat answers in the dashboard with this text.
+          pushCapped(acc.replies, { ts, text: String(b.text).trim().slice(0, 4000) }, 4);
         } else if (b?.type === 'tool_use' && typeof b.name === 'string') {
           acc.tools.set(b.name, (acc.tools.get(b.name) ?? 0) + 1);
           const fp = b.input?.file_path ?? b.input?.notebook_path;
