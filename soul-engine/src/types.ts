@@ -239,6 +239,15 @@ export interface FlowChat {
   costToday: number | null;
   recentTools: string[];
   agents: FlowAgent[];
+  /** The chat's name in Claude Code (null when it has none). */
+  name: string | null;
+  /** Its first ask: what it set out to do. */
+  goal: string | null;
+  lastReply: string | null;
+  turns: number;
+  filesTouched: number;
+  costTotal: number | null;
+  tokensToday: number;
 }
 
 export interface FlowSuggestion {
@@ -389,4 +398,51 @@ export interface Readiness {
   verdict: { text: string; file: string; date: number | null } | null;
   /** What the project would be at if its live address answered. */
   wouldBe: ReadinessLevel | null;
+}
+
+// ---- v4: chats, the Today feed, tasks, and messages you send into a chat ----
+
+export type ChatState = 'working' | 'waiting' | 'idle';
+
+export interface ChatItem extends FlowChat {
+  /** The project (projects.local.json group) the chat's folder belongs to, or the folder name. */
+  project: string;
+  state: ChatState;
+  /** The question it asked, when its last reply asks you something. */
+  asked: string | null;
+  steps: { text: string; done: boolean; now: boolean }[];
+}
+
+export interface FeedItem {
+  at: number;
+  kind: 'split' | 'merge' | 'ask' | 'commit' | 'site' | 'roadmap';
+  text: string;
+  project: string | null;
+  chat: string | null;
+}
+
+export interface TaskItem {
+  id: string;
+  title: string;
+  project: string;
+  src: 'roadmap' | 'plan' | 'soul';
+  ref: string | null;
+  status: 'todo' | 'doing' | 'blocked' | 'done';
+  chat: string | null;
+  model: 'opus' | 'sonnet' | 'haiku';
+  where: string;
+  why: string | null;
+  instruction: string | null;
+  owner: string | null;
+  due: string | null;
+  saving: number | null;
+}
+
+export interface OutboxItem {
+  id: string;
+  session: string;
+  text: string;
+  at: number;
+  status: 'queued' | 'delivered';
+  deliveredAt: number | null;
 }

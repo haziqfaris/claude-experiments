@@ -56,6 +56,10 @@ interface FileAcc {
   recentTools: string[];
   launches: Map<string, Launch>;
   plan: { ts: number; steps: string[] } | null;
+  // The chat's own name in Claude Code, its first ask, and how many asks it has had.
+  customTitle: string | null;
+  firstPrompt: string | null;
+  turns: number;
 }
 
 /** A hand-off seen in a chat: an Agent/Task call, a delegate() call or a workflow. */
@@ -116,6 +120,9 @@ function newAcc(file: string): FileAcc {
     recentTools: [],
     launches: new Map(),
     plan: null,
+    customTitle: null,
+    firstPrompt: null,
+    turns: 0,
   };
 }
 
@@ -252,9 +259,17 @@ function ingestLine(acc: FileAcc, line: string) {
       const text = textOf(o.message?.content);
       if (text && !text.trimStart().startsWith('<')) {
         pushCapped(acc.prompts, { ts, text: clip(text, 400) });
+        acc.turns += 1;
+        if (!acc.firstPrompt) acc.firstPrompt = clip(text, 300);
       }
       break;
     }
+    case 'custom-title':
+      if (typeof o.customTitle === 'string' && o.customTitle.trim()) acc.customTitle = clip(o.customTitle, 120);
+      break;
+    case 'agent-name':
+      if (typeof o.agentName === 'string' && o.agentName.trim() && !acc.customTitle) acc.customTitle = clip(o.agentName, 120);
+      break;
     case 'last-prompt':
       if (typeof o.lastPrompt === 'string') acc.lastPrompt = clip(o.lastPrompt, 160);
       break;
@@ -526,7 +541,7 @@ export class TranscriptIndex {
   }
 
   /** Relay: live and recent chats, what each is doing, and the work it handed off. */
-  flow(windowMs = 24 * 3_600_000): FlowChat[] {
+  flow(windowMs = 24 * 3_600_000, limit = 14): FlowChat[] {
     const now = Date.now();
     const dayStart = startOfDay(now);
     const mains = new Map<string, FileAcc>();
@@ -581,9 +596,11 @@ export class TranscriptIndex {
         lastActivity: m.lastTs, prompt: m.prompts[m.prompts.length - 1]?.text ?? m.lastPrompt,
         doing: m.doing, todos: m.todos, plan: m.plan, contextPct: sum?.contextPct ?? null, costToday: sum?.costToday ?? null,
         recentTools: m.recentTools.slice(-30), agents,
+        name: m.customTitle, goal: m.firstPrompt, lastReply: m.replies[m.replies.length - 1]?.text ?? null, turns: m.turns,
+        filesTouched: agg ? agg.files.size : m.files.size, costTotal: sum?.costTotal ?? null, tokensToday: sum?.tokensToday ?? 0,
       });
     }
-    return chats.sort((a, b) => b.lastActivity - a.lastActivity).slice(0, 14);
+    return chats.sort((a, b) => b.lastActivity - a.lastActivity).slice(0, limit);
   }
 
   /** Per-session detail (recent prompts, replies, tools, files) for one project. */

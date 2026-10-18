@@ -20,6 +20,7 @@ import { routePlan, routesMarkdown, suggestRoutes } from './routes';
 import { projectStatus, statusMarkdown } from './status';
 import { roadmapChanges, roadmapMarkdown } from './roadmap';
 import { guard } from './guard';
+import { buildFeed, buildTasks, collectMessages, outboxList, queueMessage, toChatItems } from './board';
 import type { FlowGraph, Inventory } from '../src/types';
 
 /** The project (a group in projects.local.json) a folder belongs to, by repo path. */
@@ -211,6 +212,26 @@ const server = http.createServer(async (req, res) => {
 
     // ---- Relay and the soul's tools (called by the soul-relay plugin inside Claude Code) ----
     if (req.method === 'GET' && url.pathname === '/api/flow') return json(res, 200, flowGraph());
+
+    // ---- v4: chats in their projects, the Today feed, one task board, messages into a chat ----
+    if (req.method === 'GET' && (url.pathname === '/api/chats' || url.pathname === '/api/feed' || url.pathname === '/api/tasks')) {
+      const inv = inventory.get();
+      const raw = index.flow(30 * 86_400_000, 80);
+      const chats = toChatItems(raw, (cwd) => projectOf(inv, cwd)?.name ?? null);
+      if (url.pathname === '/api/chats') return json(res, 200, chats);
+      const status = await projectStatus(inv);
+      if (url.pathname === '/api/feed') return json(res, 200, buildFeed(chats, status));
+      return json(res, 200, buildTasks(chats, status, suggestRoutes(raw.filter((c) => Date.now() - c.lastActivity < 86_400_000))));
+    }
+    if (url.pathname === '/api/outbox') {
+      if (req.method === 'POST') {
+        const body = JSON.parse(await readBody(req, 16 * 1024)) as { session?: unknown; text?: unknown };
+        if (typeof body.session !== 'string' || typeof body.text !== 'string' || !body.text.trim()) return json(res, 400, { error: 'expected { session, text }' });
+        return json(res, 201, queueMessage(body.session, body.text));
+      }
+      const session = url.searchParams.get('session');
+      return json(res, 200, session ? collectMessages(session) : outboxList());
+    }
     if (req.method === 'GET' && url.pathname === '/api/config') return json(res, 200, { ask: askUsesApi() ? 'api' : 'subscription' });
     // The open app compares this with what it loaded, and offers a reload when the build changed.
     if (req.method === 'GET' && url.pathname === '/api/version') {
