@@ -431,9 +431,17 @@ async function collectOutbox($: Engine) {
   try {
     const items = await hub<{ id: string; text: string }[]>($, `/api/outbox?${q({ session: S.sessionId })}`)
     for (const m of Array.isArray(items) ? items : []) {
-      // Delivered to this chat as a message, so it starts a turn here, on this chat's own model.
-      const sent = await $.session.send({ to: { sessionId: S.sessionId }, text: `[Soul Engine] ${m.text}` })
-      $.ui.toast(sent.isDelivered ? 'Soul Engine: a message from the dashboard arrived' : `Soul Engine: could not deliver a dashboard message (${sent.reason ?? 'unknown reason'})`)
+      // Submitted as a prompt of its own, so it starts a turn here once the chat is free, on this chat's model.
+      // The transcript names soul-relay as the sender; the dashboard shows whether it started.
+      try {
+        await $.prompt.submit({ text: `[Soul Engine dashboard] ${m.text}` })
+        $.ui.toast('Soul Engine: a message from the dashboard started here')
+        await hub($, '/api/outbox/ack', { id: m.id, ok: true })
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        $.ui.toast(`Soul Engine: could not start a dashboard message (${reason})`)
+        await hub($, '/api/outbox/ack', { id: m.id, ok: false, reason })
+      }
     }
   } catch {
     // The hub is optional; try again on the next tick.

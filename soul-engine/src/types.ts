@@ -443,6 +443,9 @@ export interface OutboxItem {
   session: string;
   text: string;
   at: number;
-  status: 'queued' | 'delivered';
+  /** queued on the hub · collected by the chat's plugin · started as a turn there · failed (with the reason). */
+  status: 'queued' | 'delivered' | 'started' | 'failed';
   deliveredAt: number | null;
+  startedAt: number | null;
+  reason: string | null;
 }

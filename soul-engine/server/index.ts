@@ -20,7 +20,7 @@ import { routePlan, routesMarkdown, suggestRoutes } from './routes';
 import { projectStatus, statusMarkdown } from './status';
 import { roadmapChanges, roadmapMarkdown } from './roadmap';
 import { guard } from './guard';
-import { buildFeed, buildTasks, collectMessages, outboxList, queueMessage, toChatItems } from './board';
+import { ackMessage, buildFeed, buildTasks, collectMessages, outboxList, queueMessage, toChatItems } from './board';
 import type { FlowGraph, Inventory } from '../src/types';
 
 /** The project (a group in projects.local.json) a folder belongs to, by repo path. */
@@ -222,6 +222,11 @@ const server = http.createServer(async (req, res) => {
       const status = await projectStatus(inv);
       if (url.pathname === '/api/feed') return json(res, 200, buildFeed(chats, status));
       return json(res, 200, buildTasks(chats, status, suggestRoutes(raw.filter((c) => Date.now() - c.lastActivity < 86_400_000))));
+    }
+    if (req.method === 'POST' && url.pathname === '/api/outbox/ack') {
+      const body = JSON.parse(await readBody(req, 4 * 1024)) as { id?: unknown; ok?: unknown; reason?: unknown };
+      const m = typeof body.id === 'string' ? ackMessage(body.id, body.ok === true, typeof body.reason === 'string' ? body.reason : null) : null;
+      return m ? json(res, 200, m) : json(res, 404, { error: 'no such message' });
     }
     if (url.pathname === '/api/outbox') {
       if (req.method === 'POST') {

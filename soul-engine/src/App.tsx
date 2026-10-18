@@ -213,7 +213,7 @@ const App: React.FC = () => {
       </aside>
       {palette && <Palette ctx={ctx} onClose={() => setPalette(false)} onLock={lock} />}
       {send && sendChat && <SendDialog chat={sendChat} title={send.title} text={send.text} onCancel={() => setSend(null)}
-        onSend={async (txt) => { const ok = await sendToChat(send.chatId, txt); setSend(null); flash(ok ? `Queued for “${chatName(sendChat)}”. It arrives in that chat through the soul-relay plugin.` : 'The hub did not take the message.'); }} />}
+        onSend={async (txt) => { const ok = await sendToChat(send.chatId, txt); setSend(null); flash(ok ? `Sent to “${chatName(sendChat)}”. Its panel shows when the chat starts on it.` : 'The hub did not take the message.'); if (ok) setDrawer({ type: 'chat', id: send.chatId }); }} />}
       {doc && <DocModal title={doc.title} markdown={doc.markdown} onClose={() => setDoc(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
       {locked && <LockScreen snapshot={snapshot} flow={flow} status={status} pinHash={lockPrefs.pinHash} hello={lockPrefs.hello} onUnlock={unlock} />}

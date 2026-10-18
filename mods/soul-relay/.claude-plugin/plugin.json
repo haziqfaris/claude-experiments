@@ -1,6 +1,6 @@
 {
   "name": "soul-relay",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Delegate work from an expensive session to cheaper models (Haiku/Sonnet), in-session or to worker sessions, and get the result back in your chat.",
   "author": {
     "name": "haziqfaris"
