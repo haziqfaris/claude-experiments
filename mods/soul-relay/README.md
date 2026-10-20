@@ -95,6 +95,8 @@ For every hand-off, the mod takes the cheaper model's token usage and prices it 
 - The `delegate` tool's model has no tools and no history. Claude is told to pass everything it needs in `task` and `context`.
 - Check what comes back. Cheaper models are fast and good at well-specified work, but they can be wrong.
 
+Notes from real use, and what to improve next: [IMPROVEMENTS.md](IMPROVEMENTS.md).
+
 ## Develop
 
 ```bash
